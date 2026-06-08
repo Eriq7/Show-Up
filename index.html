@@ -74,7 +74,24 @@
     display: block;
     pointer-events: none;
     user-select: none;
-    clip-path: inset(0 0 6% 0);
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(0,0,0,0.3) 3%,
+      #000 10%,
+      #000 88%,
+      rgba(0,0,0,0.3) 96%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(0,0,0,0.3) 3%,
+      #000 10%,
+      #000 88%,
+      rgba(0,0,0,0.3) 96%,
+      transparent 100%
+    );
   }
   .head-btn {
     position: absolute;
