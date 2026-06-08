@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#fdf2e9">
+<title>Show Up</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  * { box-sizing: border-box; }
+
+  :root {
+    --bg: #fdf2e9;
+    --bg2: #fff8f0;
+    --bg3: #faead8;
+    --border: #e8d5b5;
+    --text: #3a1f0a;
+    --muted: #8b6f4f;
+    --primary: #c2410c;
+    --primary-hover: #9a3412;
+    --resting: #ea580c;
+    --danger: #991b1b;
+  }
+
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    min-height: 100dvh;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ───── HOME ───── */
+  #page-home {
+    position: relative;
+    width: 100vw;
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #0c0c0c;
+  }
+  #home-img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    display: block;
+    pointer-events: none;
+    user-select: none;
+  }
+  .head-btn {
+    position: absolute;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    outline: none;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ───── WORKOUT ───── */
+  #page-workout {
+    display: none;
+    min-height: 100dvh;
+    background: var(--bg);
+    padding-bottom: 120px;
+  }
+
+  /* Header */
+  #workout-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    gap: 12px;
+  }
+  #btn-back {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 18px;
+    cursor: pointer;
+    flex-shrink: 0;
+    touch-action: manipulation;
+  }
+  #workout-title {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    flex: 1;
+    text-align: center;
+  }
+  #global-timer {
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.05em;
+    color: var(--primary);
+    font-weight: 600;
+    flex-shrink: 0;
+    min-width: 80px;
+    text-align: right;
+  }
+
+  /* Exercise card */
+  .exercise-card {
+    margin: 16px 12px 0;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .exercise-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+  }
+  .exercise-name {
+    font-size: 15px;
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+  }
+  .exercise-sets-count {
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .edit-hint {
+    font-size: 11px;
+    color: var(--muted);
+    opacity: 0.65;
+    white-space: nowrap;
+  }
+
+  /* Table */
+  .sets-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .sets-table th {
+    padding: 8px 6px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .sets-table th:first-child { width: 30px; }
+  .sets-table th:nth-child(2), .sets-table th:nth-child(3) { width: 60px; }
+  .sets-table th:nth-child(4) { width: 72px; }
+  .sets-table th:last-child { width: 90px; }
+
+  .sets-table td {
+    padding: 8px 4px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .sets-table tr:last-child td { border-bottom: none; }
+
+  .set-row { transition: background 0.2s; }
+  .set-row.completed { opacity: 0.45; }
+  .set-row.current { background: var(--bg3); }
+  .set-row.resting { background: rgba(234, 88, 12, 0.10); }
+  .set-row.pending { opacity: 0.5; }
+
+  .cell-num { color: var(--muted); font-size: 13px; }
+
+  /* Read-only cell: tap feedback, no border */
+  .cell-readonly {
+    display: inline-block;
+    min-width: 36px;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 14px;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  .cell-readonly:active { background: var(--bg3); }
+
+  /* Active editing input */
+  .cell-edit-input {
+    background: var(--bg2);
+    border: 1.5px solid var(--primary);
+    border-radius: 4px;
+    padding: 4px 6px;
+    text-align: center;
+    font-size: 14px;
+    width: 60px;
+    outline: none;
+    color: var(--text);
+    font-family: inherit;
+  }
+
+  .rest-display {
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+    letter-spacing: 0.03em;
+  }
+  .rest-display.live {
+    color: var(--resting);
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  /* Action buttons col 5 */
+  .btn-action {
+    width: 80px;
+    height: 44px;
+    border-radius: 8px;
+    border: none;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    letter-spacing: 0.01em;
+    padding: 0 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+  }
+  .btn-action:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+  .btn-action.start-rest {
+    background: var(--primary);
+    color: #fff;
+  }
+  .btn-action.stop-rest {
+    background: var(--resting);
+    color: #fff;
+    animation: pulse-resting 1.5s ease-in-out infinite;
+  }
+  .btn-action.complete-set {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #86efac;
+  }
+  .btn-action.done-indicator {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid transparent;
+    font-size: 16px;
+  }
+
+  @keyframes pulse-resting {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.35); }
+    50% { box-shadow: 0 0 0 6px rgba(234, 88, 12, 0); }
+  }
+
+  /* Bottom buttons */
+  #workout-footer {
+    margin: 20px 12px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .btn-add-exercise {
+    width: 100%;
+    padding: 14px;
+    background: var(--bg2);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    color: var(--muted);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+  }
+  .btn-end-workout {
+    width: 100%;
+    padding: 14px;
+    background: transparent;
+    border: 2px solid var(--danger);
+    border-radius: 12px;
+    color: var(--danger);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+  }
+
+  /* Modal */
+  #modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 100;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  #modal-overlay.open { display: flex; }
+  #modal-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+    padding: 24px 20px 40px;
+    width: 100%;
+    max-width: 480px;
+    animation: slide-up 0.25s ease-out;
+  }
+  @keyframes slide-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  .modal-title {
+    font-size: 17px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    text-align: center;
+  }
+  .modal-field { margin-bottom: 14px; }
+  .modal-label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .modal-input {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-size: 16px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .modal-input:focus { border-color: var(--primary); }
+  .modal-btns {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+  }
+  .modal-cancel {
+    flex: 1;
+    padding: 13px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--muted);
+    font-size: 15px;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+  }
+  .modal-confirm {
+    flex: 1;
+    padding: 13px;
+    background: var(--primary);
+    border: none;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ HOME PAGE ═══════════════════════════ -->
+<div id="page-home">
+  <div style="position:relative; display:inline-block; max-width:100vw; max-height:100dvh;">
+    <img id="home-img" src="jiduola.png" alt="Ghidorah">
+    <!-- Left head → Shoulders -->
+    <button class="head-btn"
+      style="left:2%; top:18%; width:33%; height:80%;"
+      onclick="navigate('shoulders')" aria-label="肩训练"></button>
+    <!-- Center head → Chest -->
+    <button class="head-btn"
+      style="left:33%; top:0%; width:34%; height:98%;"
+      onclick="navigate('chest')" aria-label="胸训练"></button>
+    <!-- Right head → Back -->
+    <button class="head-btn"
+      style="left:65%; top:18%; width:33%; height:80%;"
+      onclick="navigate('back')" aria-label="背训练"></button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ WORKOUT PAGE ═══════════════════════════ -->
+<div id="page-workout">
+  <div id="workout-header">
+    <button id="btn-back" onclick="goHome()">←</button>
+    <div id="workout-title">训练</div>
+    <div id="global-timer">00:00:00</div>
+  </div>
+
+  <div id="exercises-container"></div>
+
+  <div id="workout-footer">
+    <button class="btn-add-exercise" onclick="openAddModal()">＋ 添加动作</button>
+    <button class="btn-end-workout" onclick="endWorkout()">结束训练</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ MODAL ═══════════════════════════ -->
+<div id="modal-overlay">
+  <div id="modal-box">
+    <div class="modal-title">添加动作</div>
+    <div class="modal-field">
+      <label class="modal-label" for="modal-name">动作名称</label>
+      <input class="modal-input" id="modal-name" type="text" placeholder="例：平板卧推" autocomplete="off">
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="modal-sets">组数</label>
+      <input class="modal-input" id="modal-sets" type="number" inputmode="decimal" placeholder="6" min="1" max="20">
+    </div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal()">取消</button>
+      <button class="modal-confirm" onclick="confirmAddExercise()">添加</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════
+const STORAGE_KEY = 'showup:state';
+
+function defaultState() {
+  return {
+    routines: {
+      chest:     { displayName: '胸', lastTrainedAt: null, exercises: [] },
+      shoulders: { displayName: '肩', lastTrainedAt: null, exercises: [] },
+      back:      { displayName: '背', lastTrainedAt: null, exercises: [] }
+    },
+    activeSession: null
+  };
+}
+
+let state = defaultState();
+
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      state = { ...defaultState(), ...parsed };
+      state.routines = { ...defaultState().routines, ...parsed.routines };
+    }
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════
+//  ROUTING
+// ═══════════════════════════════════════════════════
+function navigate(routineKey) { window.location.hash = routineKey; }
+function goHome() { window.location.hash = ''; }
+function currentHash() { return window.location.hash.replace('#', ''); }
+
+function render() {
+  const hash = currentHash();
+  const routineKeys = ['chest', 'shoulders', 'back'];
+  const home = document.getElementById('page-home');
+  const workout = document.getElementById('page-workout');
+
+  if (routineKeys.includes(hash)) {
+    home.style.display = 'none';
+    workout.style.display = 'block';
+    enterRoutine(hash);
+    renderWorkout();
+  } else {
+    home.style.display = 'flex';
+    workout.style.display = 'none';
+    stopTimers();
+  }
+}
+
+window.addEventListener('hashchange', render);
+window.addEventListener('load', () => { load(); render(); });
+
+// ═══════════════════════════════════════════════════
+//  SESSION MANAGEMENT
+// ═══════════════════════════════════════════════════
+function enterRoutine(routineKey) {
+  const ses = state.activeSession;
+  if (ses && ses.routineKey === routineKey) {
+    startTimers();
+    return;
+  }
+
+  const routine = state.routines[routineKey];
+  const templateExercises = JSON.parse(JSON.stringify(routine.exercises));
+  const sessionExercises = templateExercises.map(ex => ({
+    name: ex.name,
+    sets: ex.sets.map(s => ({
+      weight: s.weight || 0,
+      reps: s.reps || 0,
+      restSeconds: null
+    }))
+  }));
+
+  state.activeSession = {
+    routineKey,
+    startedAt: Date.now(),
+    exercises: sessionExercises,
+    currentSetCursors: {},
+    restingState: null,
+    editingCell: null   // { exerciseIndex, setIndex, field: 'weight'|'reps'|'rest' }
+  };
+
+  sessionExercises.forEach((_, i) => {
+    state.activeSession.currentSetCursors[i] = 0;
+  });
+
+  save();
+  startTimers();
+}
+
+// ═══════════════════════════════════════════════════
+//  TIMERS
+// ═══════════════════════════════════════════════════
+let timerInterval = null;
+
+function startTimers() {
+  stopTimers();
+  timerInterval = setInterval(updateTimers, 1000);
+  updateTimers();
+}
+
+function stopTimers() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+}
+
+function formatHMS(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return [h,m,s].map(v => String(v).padStart(2,'0')).join(':');
+}
+
+function formatMS(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m + ':' + String(s).padStart(2,'0');
+}
+
+function updateTimers() {
+  const ses = state.activeSession;
+  if (!ses) return;
+
+  const elapsed = Math.floor((Date.now() - ses.startedAt) / 1000);
+  const timerEl = document.getElementById('global-timer');
+  if (timerEl) timerEl.textContent = formatHMS(elapsed);
+
+  if (ses.restingState) {
+    const { exerciseIndex, setIndex, restStartedAt } = ses.restingState;
+    const restElapsed = Math.floor((Date.now() - restStartedAt) / 1000);
+    const cell = document.getElementById(`rest-cell-${exerciseIndex}-${setIndex}`);
+    if (cell) {
+      cell.textContent = formatMS(restElapsed);
+      cell.className = 'rest-display live';
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════
+//  CELL EDIT
+// ═══════════════════════════════════════════════════
+function startCellEdit(exIdx, setIdx, field) {
+  const ses = state.activeSession;
+  if (!ses) return;
+  // Block editing the live rest timer cell
+  if (field === 'rest' && ses.restingState &&
+      ses.restingState.exerciseIndex === exIdx &&
+      ses.restingState.setIndex === setIdx) return;
+  ses.editingCell = { exerciseIndex: exIdx, setIndex: setIdx, field };
+  renderWorkout();
+  requestAnimationFrame(() => {
+    const inp = document.getElementById(`edit-input-${exIdx}-${setIdx}-${field}`);
+    if (inp) { inp.focus(); inp.select(); }
+  });
+}
+
+function commitCellEdit(exIdx, setIdx, field, value) {
+  const ses = state.activeSession;
+  if (!ses) return;
+  // Ignore if this cell is no longer the editing cell (already committed/cancelled)
+  if (!ses.editingCell ||
+      ses.editingCell.exerciseIndex !== exIdx ||
+      ses.editingCell.setIndex !== setIdx ||
+      ses.editingCell.field !== field) return;
+
+  const numVal = parseFloat(value) || 0;
+  const set = ses.exercises[exIdx].sets[setIdx];
+  if (field === 'weight') set.weight = numVal;
+  else if (field === 'reps') set.reps = Math.round(numVal);
+  else if (field === 'rest') set.restSeconds = Math.round(numVal);
+  ses.editingCell = null;
+  save();
+  renderWorkout();
+}
+
+function cancelCellEdit() {
+  if (!state.activeSession) return;
+  state.activeSession.editingCell = null;
+  renderWorkout();
+}
+
+// ═══════════════════════════════════════════════════
+//  RENDER WORKOUT
+// ═══════════════════════════════════════════════════
+function renderWorkout() {
+  const ses = state.activeSession;
+  if (!ses) return;
+
+  document.getElementById('workout-title').textContent =
+    state.routines[ses.routineKey].displayName + '训练';
+
+  const container = document.getElementById('exercises-container');
+  container.innerHTML = '';
+
+  ses.exercises.forEach((ex, exIdx) => {
+    const cursor = ses.currentSetCursors[exIdx] ?? 0;
+    container.appendChild(buildExerciseCard(ex, exIdx, cursor, ses));
+  });
+
+  updateTimers();
+}
+
+function buildExerciseCard(ex, exIdx, cursor, ses) {
+  const card = document.createElement('div');
+  card.className = 'exercise-card';
+  card.id = `exercise-card-${exIdx}`;
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'exercise-header';
+
+  const nameSpan = document.createElement('div');
+  nameSpan.className = 'exercise-name';
+  nameSpan.textContent = ex.name;
+
+  const right = document.createElement('div');
+  right.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0;';
+
+  const setsCount = document.createElement('div');
+  setsCount.className = 'exercise-sets-count';
+  setsCount.textContent = `${ex.sets.length}组`;
+
+  right.appendChild(setsCount);
+  header.appendChild(nameSpan);
+  header.appendChild(right);
+  card.appendChild(header);
+
+  // Table
+  const table = document.createElement('table');
+  table.className = 'sets-table';
+  table.innerHTML = `<thead><tr>
+    <th>#</th>
+    <th>重量<br><span style="font-size:10px;opacity:0.6">LBS</span></th>
+    <th>次数</th>
+    <th>休息</th>
+    <th>操作</th>
+  </tr></thead>`;
+
+  const tbody = document.createElement('tbody');
+  const isLastSet = i => i === ex.sets.length - 1;
+  const isResting = ses.restingState &&
+    ses.restingState.exerciseIndex === exIdx &&
+    ses.restingState.setIndex === cursor;
+
+  ex.sets.forEach((set, setIdx) => {
+    const tr = document.createElement('tr');
+    let rowClass = 'set-row';
+    if (setIdx < cursor) rowClass += ' completed';
+    else if (setIdx === cursor) rowClass += isResting ? ' resting' : ' current';
+    else rowClass += ' pending';
+    tr.className = rowClass;
+
+    // # col
+    const tdNum = document.createElement('td');
+    tdNum.className = 'cell-num';
+    tdNum.textContent = setIdx + 1;
+    tr.appendChild(tdNum);
+
+    // Weight col
+    tr.appendChild(buildNumCell(set.weight, exIdx, setIdx, 'weight', ses));
+    // Reps col
+    tr.appendChild(buildNumCell(set.reps, exIdx, setIdx, 'reps', ses));
+
+    // Rest col
+    tr.appendChild(buildRestCell(set, exIdx, setIdx, cursor, isLastSet(setIdx), isResting, ses));
+
+    // Action col
+    tr.appendChild(buildActionCell(setIdx, cursor, exIdx, isLastSet(setIdx), isResting));
+
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  card.appendChild(table);
+  return card;
+}
+
+function buildNumCell(value, exIdx, setIdx, field, ses) {
+  const td = document.createElement('td');
+  const ec = ses.editingCell;
+  const isEditing = ec && ec.exerciseIndex === exIdx && ec.setIndex === setIdx && ec.field === field;
+
+  if (isEditing) {
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.inputMode = 'decimal';
+    inp.className = 'cell-edit-input';
+    inp.id = `edit-input-${exIdx}-${setIdx}-${field}`;
+    inp.value = value || 0;
+    inp.onblur = (e) => commitCellEdit(exIdx, setIdx, field, e.target.value);
+    inp.onkeydown = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commitCellEdit(exIdx, setIdx, field, e.target.value); }
+      if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit(); }
+    };
+    td.appendChild(inp);
+  } else {
+    const span = document.createElement('span');
+    span.className = 'cell-readonly';
+    span.textContent = value || 0;
+    span.ondblclick = () => startCellEdit(exIdx, setIdx, field);
+    td.appendChild(span);
+  }
+  return td;
+}
+
+function buildRestCell(set, exIdx, setIdx, cursor, isLast, isResting, ses) {
+  const td = document.createElement('td');
+  const ec = ses.editingCell;
+  const isEditingRest = ec && ec.exerciseIndex === exIdx && ec.setIndex === setIdx && ec.field === 'rest';
+
+  if (isLast) {
+    // Last set: never shows rest
+    const span = document.createElement('span');
+    span.className = 'rest-display';
+    span.style.color = 'var(--muted)';
+    span.textContent = '—';
+    td.appendChild(span);
+    return td;
+  }
+
+  if (setIdx === cursor && isResting) {
+    // Live timer — not editable
+    const span = document.createElement('span');
+    span.id = `rest-cell-${exIdx}-${setIdx}`;
+    const restElapsed = Math.floor((Date.now() - ses.restingState.restStartedAt) / 1000);
+    span.textContent = formatMS(restElapsed);
+    span.className = 'rest-display live';
+    td.appendChild(span);
+    return td;
+  }
+
+  if (set.restSeconds !== null && set.restSeconds !== undefined && setIdx < cursor) {
+    // Completed row with recorded rest — double-click editable
+    if (isEditingRest) {
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.inputMode = 'decimal';
+      inp.className = 'cell-edit-input';
+      inp.id = `edit-input-${exIdx}-${setIdx}-rest`;
+      inp.value = set.restSeconds;
+      inp.style.width = '56px';
+      inp.onblur = (e) => commitCellEdit(exIdx, setIdx, 'rest', e.target.value);
+      inp.onkeydown = (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commitCellEdit(exIdx, setIdx, 'rest', e.target.value); }
+        if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit(); }
+      };
+      td.appendChild(inp);
+    } else {
+      const span = document.createElement('span');
+      span.id = `rest-cell-${exIdx}-${setIdx}`;
+      span.className = 'cell-readonly rest-display';
+      span.textContent = formatMS(set.restSeconds);
+      span.ondblclick = () => startCellEdit(exIdx, setIdx, 'rest');
+      td.appendChild(span);
+    }
+    return td;
+  }
+
+  // Empty / pending
+  const span = document.createElement('span');
+  span.id = `rest-cell-${exIdx}-${setIdx}`;
+  span.className = 'rest-display';
+  span.textContent = '';
+  td.appendChild(span);
+  return td;
+}
+
+function buildActionCell(setIdx, cursor, exIdx, isLast, isResting) {
+  const td = document.createElement('td');
+  const btn = document.createElement('button');
+  btn.className = 'btn-action';
+
+  if (setIdx < cursor) {
+    btn.textContent = '✓';
+    btn.className += ' done-indicator';
+    btn.disabled = true;
+  } else if (setIdx === cursor) {
+    if (isLast) {
+      btn.textContent = '完成';
+      btn.className += ' complete-set';
+      btn.onclick = () => completeLastSet(exIdx);
+    } else if (isResting) {
+      btn.textContent = '结束休息';
+      btn.className += ' stop-rest';
+      btn.onclick = () => stopRest(exIdx);
+    } else {
+      btn.textContent = '开始休息';
+      btn.className += ' start-rest';
+      btn.onclick = () => startRest(exIdx);
+    }
+  } else {
+    btn.textContent = '—';
+    btn.disabled = true;
+    btn.className += ' done-indicator';
+  }
+
+  td.appendChild(btn);
+  return td;
+}
+
+// ═══════════════════════════════════════════════════
+//  REST TIMER ACTIONS
+// ═══════════════════════════════════════════════════
+function startRest(exIdx) {
+  const ses = state.activeSession;
+  const cursor = ses.currentSetCursors[exIdx] ?? 0;
+  ses.editingCell = null;  // dismiss any open edit
+  ses.restingState = { exerciseIndex: exIdx, setIndex: cursor, restStartedAt: Date.now() };
+  save();
+  renderWorkout();
+}
+
+function stopRest(exIdx) {
+  const ses = state.activeSession;
+  if (!ses.restingState) return;
+  const { restStartedAt, setIndex } = ses.restingState;
+  const restSeconds = Math.round((Date.now() - restStartedAt) / 1000) + 10;
+  ses.exercises[exIdx].sets[setIndex].restSeconds = restSeconds;
+  ses.currentSetCursors[exIdx] = (ses.currentSetCursors[exIdx] ?? 0) + 1;
+  ses.restingState = null;
+  save();
+  renderWorkout();
+}
+
+function completeLastSet(exIdx) {
+  const ses = state.activeSession;
+  const ex = ses.exercises[exIdx];
+  const lastIdx = ex.sets.length - 1;
+  ex.sets[lastIdx].restSeconds = null;
+  ses.currentSetCursors[exIdx] = lastIdx + 1;
+  ses.restingState = null;
+  save();
+  renderWorkout();
+}
+
+// ═══════════════════════════════════════════════════
+//  ADD EXERCISE MODAL
+// ═══════════════════════════════════════════════════
+function openAddModal() {
+  document.getElementById('modal-name').value = '';
+  document.getElementById('modal-sets').value = '';
+  document.getElementById('modal-overlay').classList.add('open');
+  setTimeout(() => document.getElementById('modal-name').focus(), 100);
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+function confirmAddExercise() {
+  const name = document.getElementById('modal-name').value.trim();
+  const setsCount = parseInt(document.getElementById('modal-sets').value) || 0;
+  if (!name || setsCount < 1) return;
+
+  const ses = state.activeSession;
+  if (!ses) return;
+
+  const templateEx = state.routines[ses.routineKey].exercises.find(e => e.name === name);
+  const sets = Array.from({ length: setsCount }, (_, i) => {
+    if (templateEx && templateEx.sets[i]) {
+      return { weight: templateEx.sets[i].weight || 0, reps: templateEx.sets[i].reps || 0, restSeconds: null };
+    }
+    return { weight: 0, reps: 0, restSeconds: null };
+  });
+
+  const newExIdx = ses.exercises.length;
+  ses.exercises.push({ name, sets });
+  ses.currentSetCursors[newExIdx] = 0;
+
+  save();
+  closeModal();
+  renderWorkout();
+
+  setTimeout(() => {
+    const card = document.getElementById(`exercise-card-${newExIdx}`);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 100);
+}
+
+document.getElementById('modal-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('modal-sets').focus();
+});
+document.getElementById('modal-sets').addEventListener('keydown', e => {
+  if (e.key === 'Enter') confirmAddExercise();
+});
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+});
+
+// ═══════════════════════════════════════════════════
+//  END WORKOUT
+// ═══════════════════════════════════════════════════
+function endWorkout() {
+  if (!confirm('结束本次训练？\n数据将保存为下次训练的模板。')) return;
+  const ses = state.activeSession;
+  if (!ses) return;
+  const routineKey = ses.routineKey;
+  state.routines[routineKey].exercises = JSON.parse(JSON.stringify(ses.exercises));
+  state.routines[routineKey].lastTrainedAt = Date.now();
+  state.activeSession = null;
+  save();
+  stopTimers();
+  window.location.hash = '';
+}
+</script>
+</body>
+</html>
