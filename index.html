@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#fdf2e9">
@@ -40,17 +40,41 @@
     height: 100dvh;
     overflow: hidden;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
     background: #0c0c0c;
+  }
+  .home-backdrop {
+    position: absolute; inset: 0;
+    background: url('jiduola.png') center/cover no-repeat;
+    filter: blur(40px) brightness(0.4) saturate(1.2);
+    transform: scale(1.2);
+    z-index: 0; pointer-events: none;
+  }
+  .home-title {
+    position: relative; z-index: 2;
+    font-size: clamp(28px, 7vw, 44px);
+    font-weight: 800; letter-spacing: 0.18em;
+    color: #d4a843;
+    text-shadow: 0 2px 16px rgba(0,0,0,0.7);
+    padding-top: max(28px, env(safe-area-inset-top));
+  }
+  .home-img-wrap {
+    position: relative; z-index: 1;
+    display: inline-block; max-width: 100vw;
+  }
+  .home-spacer {
+    height: max(28px, env(safe-area-inset-bottom));
   }
   #home-img {
     max-width: 100%;
-    max-height: 100%;
+    max-height: calc(100dvh - 110px);
     object-fit: contain;
     display: block;
     pointer-events: none;
     user-select: none;
+    clip-path: inset(0 0 6% 0);
   }
   .head-btn {
     position: absolute;
@@ -385,13 +409,134 @@
     font-family: inherit;
     touch-action: manipulation;
   }
+
+  /* Exercise menu */
+  .exercise-menu-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 20px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    touch-action: manipulation;
+    line-height: 1;
+  }
+  .exercise-menu-btn:active { background: var(--bg3); }
+
+  #exercise-menu-overlay,
+  #end-confirm-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 100;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  #exercise-menu-overlay.open,
+  #end-confirm-overlay.open { display: flex; }
+  #exercise-menu-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+    padding: 16px 16px 40px;
+    width: 100%;
+    max-width: 480px;
+    animation: slide-up 0.25s ease-out;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .menu-item {
+    width: 100%;
+    padding: 15px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+    text-align: left;
+  }
+  .menu-item-danger { color: var(--danger); }
+  .menu-cancel {
+    width: 100%;
+    padding: 15px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--muted);
+    font-size: 15px;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+    margin-top: 4px;
+  }
+
+  /* End workout confirm */
+  .confirm-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+    padding: 24px 20px 40px;
+    width: 100%;
+    max-width: 480px;
+    animation: slide-up 0.25s ease-out;
+  }
+  .confirm-title {
+    font-size: 17px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+  .confirm-msg {
+    font-size: 14px;
+    color: var(--muted);
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .confirm-btns {
+    display: flex;
+    gap: 10px;
+  }
+  .confirm-cancel {
+    flex: 1;
+    padding: 13px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--muted);
+    font-size: 15px;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+  }
+  .confirm-ok {
+    flex: 1;
+    padding: 13px;
+    background: var(--danger);
+    border: none;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+  }
 </style>
 </head>
 <body>
 
 <!-- ═══════════════════════════ HOME PAGE ═══════════════════════════ -->
 <div id="page-home">
-  <div style="position:relative; display:inline-block; max-width:100vw; max-height:100dvh;">
+  <div class="home-backdrop"></div>
+  <div class="home-title">SHOW UP</div>
+  <div class="home-img-wrap">
     <img id="home-img" src="jiduola.png" alt="Ghidorah">
     <!-- Left head → Shoulders -->
     <button class="head-btn"
@@ -406,6 +551,7 @@
       style="left:65%; top:18%; width:33%; height:80%;"
       onclick="navigate('back')" aria-label="背训练"></button>
   </div>
+  <div class="home-spacer"></div>
 </div>
 
 <!-- ═══════════════════════════ WORKOUT PAGE ═══════════════════════════ -->
@@ -421,6 +567,27 @@
   <div id="workout-footer">
     <button class="btn-add-exercise" onclick="openAddModal()">＋ 添加动作</button>
     <button class="btn-end-workout" onclick="endWorkout()">结束训练</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ EXERCISE MENU ═══════════════════════════ -->
+<div id="exercise-menu-overlay">
+  <div id="exercise-menu-box">
+    <button class="menu-item" onclick="renameExercisePrompt()">重命名动作</button>
+    <button class="menu-item menu-item-danger" onclick="deleteExerciseConfirm()">删除动作</button>
+    <button class="menu-cancel" onclick="closeExerciseMenu()">取消</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ END WORKOUT CONFIRM ═══════════════════════════ -->
+<div id="end-confirm-overlay">
+  <div class="confirm-box">
+    <div class="confirm-title">结束本次训练？</div>
+    <div class="confirm-msg">当前数据将保存为下次训练的模板。</div>
+    <div class="confirm-btns">
+      <button class="confirm-cancel" onclick="cancelEndWorkout()">取消</button>
+      <button class="confirm-ok" onclick="confirmEndWorkout()">确定结束</button>
+    </div>
   </div>
 </div>
 
@@ -670,10 +837,16 @@ function buildExerciseCard(ex, exIdx, cursor, ses) {
   const right = document.createElement('div');
   right.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0;';
 
+  const menuBtn = document.createElement('button');
+  menuBtn.className = 'exercise-menu-btn';
+  menuBtn.textContent = '⋯';
+  menuBtn.onclick = (e) => { e.stopPropagation(); openExerciseMenu(exIdx); };
+
   const setsCount = document.createElement('div');
   setsCount.className = 'exercise-sets-count';
   setsCount.textContent = `${ex.sets.length}组`;
 
+  right.appendChild(menuBtn);
   right.appendChild(setsCount);
   header.appendChild(nameSpan);
   header.appendChild(right);
@@ -751,7 +924,7 @@ function buildNumCell(value, exIdx, setIdx, field, ses) {
     const span = document.createElement('span');
     span.className = 'cell-readonly';
     span.textContent = value || 0;
-    span.ondblclick = () => startCellEdit(exIdx, setIdx, field);
+    span.onclick = () => startCellEdit(exIdx, setIdx, field);
     td.appendChild(span);
   }
   return td;
@@ -804,7 +977,7 @@ function buildRestCell(set, exIdx, setIdx, cursor, isLast, isResting, ses) {
       span.id = `rest-cell-${exIdx}-${setIdx}`;
       span.className = 'cell-readonly rest-display';
       span.textContent = formatMS(set.restSeconds);
-      span.ondblclick = () => startCellEdit(exIdx, setIdx, 'rest');
+      span.onclick = () => startCellEdit(exIdx, setIdx, 'rest');
       td.appendChild(span);
     }
     return td;
@@ -940,21 +1113,87 @@ document.getElementById('modal-sets').addEventListener('keydown', e => {
 document.getElementById('modal-overlay').addEventListener('click', e => {
   if (e.target === document.getElementById('modal-overlay')) closeModal();
 });
+document.getElementById('exercise-menu-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('exercise-menu-overlay')) closeExerciseMenu();
+});
+document.getElementById('end-confirm-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('end-confirm-overlay')) cancelEndWorkout();
+});
 
 // ═══════════════════════════════════════════════════
 //  END WORKOUT
 // ═══════════════════════════════════════════════════
 function endWorkout() {
-  if (!confirm('结束本次训练？\n数据将保存为下次训练的模板。')) return;
+  document.getElementById('end-confirm-overlay').classList.add('open');
+}
+
+function cancelEndWorkout() {
+  document.getElementById('end-confirm-overlay').classList.remove('open');
+}
+
+function confirmEndWorkout() {
   const ses = state.activeSession;
-  if (!ses) return;
-  const routineKey = ses.routineKey;
-  state.routines[routineKey].exercises = JSON.parse(JSON.stringify(ses.exercises));
-  state.routines[routineKey].lastTrainedAt = Date.now();
+  if (ses) {
+    const routineKey = ses.routineKey;
+    state.routines[routineKey].exercises = JSON.parse(JSON.stringify(ses.exercises));
+    state.routines[routineKey].lastTrainedAt = Date.now();
+  }
   state.activeSession = null;
   save();
   stopTimers();
+  const t = document.getElementById('global-timer');
+  if (t) t.textContent = '00:00:00';
+  document.getElementById('end-confirm-overlay').classList.remove('open');
   window.location.hash = '';
+}
+
+// ═══════════════════════════════════════════════════
+//  EXERCISE MENU
+// ═══════════════════════════════════════════════════
+let activeMenuExIdx = null;
+
+function openExerciseMenu(exIdx) {
+  activeMenuExIdx = exIdx;
+  document.getElementById('exercise-menu-overlay').classList.add('open');
+}
+
+function closeExerciseMenu() {
+  activeMenuExIdx = null;
+  document.getElementById('exercise-menu-overlay').classList.remove('open');
+}
+
+function renameExercisePrompt() {
+  const ses = state.activeSession;
+  const ex = ses.exercises[activeMenuExIdx];
+  const next = prompt('新动作名称', ex.name);
+  if (next && next.trim()) {
+    ex.name = next.trim();
+    save();
+    renderWorkout();
+  }
+  closeExerciseMenu();
+}
+
+function deleteExerciseConfirm() {
+  const ses = state.activeSession;
+  const ex = ses.exercises[activeMenuExIdx];
+  if (confirm(`确认删除「${ex.name}」？`)) {
+    ses.exercises.splice(activeMenuExIdx, 1);
+    const newCursors = {};
+    Object.keys(ses.currentSetCursors).forEach(k => {
+      const i = parseInt(k);
+      if (i !== activeMenuExIdx) {
+        newCursors[i > activeMenuExIdx ? i - 1 : i] = ses.currentSetCursors[k];
+      }
+    });
+    ses.currentSetCursors = newCursors;
+    if (ses.restingState && ses.restingState.exerciseIndex === activeMenuExIdx) {
+      ses.restingState = null;
+    }
+    save();
+    renderWorkout();
+  }
+  closeExerciseMenu();
 }
 </script>
 </body>
