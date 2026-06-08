@@ -715,8 +715,7 @@ function enterRoutine(routineKey) {
     startedAt: Date.now(),
     exercises: sessionExercises,
     currentSetCursors: {},
-    restingState: null,
-    editingCell: null   // { exerciseIndex, setIndex, field: 'weight'|'reps'|'rest' }
+    restingState: null
   };
 
   sessionExercises.forEach((_, i) => {
@@ -777,44 +776,52 @@ function updateTimers() {
 // ═══════════════════════════════════════════════════
 //  CELL EDIT
 // ═══════════════════════════════════════════════════
-function startCellEdit(exIdx, setIdx, field) {
+function startCellEdit(spanEl, exIdx, setIdx, field) {
   const ses = state.activeSession;
   if (!ses) return;
-  // Block editing the live rest timer cell
   if (field === 'rest' && ses.restingState &&
       ses.restingState.exerciseIndex === exIdx &&
       ses.restingState.setIndex === setIdx) return;
-  ses.editingCell = { exerciseIndex: exIdx, setIndex: setIdx, field };
-  renderWorkout();
-  requestAnimationFrame(() => {
-    const inp = document.getElementById(`edit-input-${exIdx}-${setIdx}-${field}`);
-    if (inp) { inp.focus(); inp.select(); }
-  });
+
+  const inp = document.createElement('input');
+  inp.type = 'number';
+  inp.inputMode = 'decimal';
+  inp.className = 'cell-edit-input';
+  if (field === 'rest') {
+    inp.style.width = '56px';
+    inp.value = ses.exercises[exIdx].sets[setIdx].restSeconds ?? 0;
+  } else {
+    inp.value = parseFloat(spanEl.textContent) || 0;
+  }
+  inp.onblur = () => commitCellEdit(inp, spanEl, exIdx, setIdx, field, inp.value);
+  inp.onkeydown = (e) => {
+    if (e.key === 'Enter')  { e.preventDefault(); commitCellEdit(inp, spanEl, exIdx, setIdx, field, inp.value); }
+    if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit(inp, spanEl); }
+  };
+  spanEl.replaceWith(inp);
+  inp.focus();
+  inp.select();
 }
 
-function commitCellEdit(exIdx, setIdx, field, value) {
+function commitCellEdit(inp, spanEl, exIdx, setIdx, field, value) {
+  if (inp._done) return;
+  inp._done = true;
   const ses = state.activeSession;
   if (!ses) return;
-  // Ignore if this cell is no longer the editing cell (already committed/cancelled)
-  if (!ses.editingCell ||
-      ses.editingCell.exerciseIndex !== exIdx ||
-      ses.editingCell.setIndex !== setIdx ||
-      ses.editingCell.field !== field) return;
-
   const numVal = parseFloat(value) || 0;
   const set = ses.exercises[exIdx].sets[setIdx];
   if (field === 'weight') set.weight = numVal;
   else if (field === 'reps') set.reps = Math.round(numVal);
   else if (field === 'rest') set.restSeconds = Math.round(numVal);
-  ses.editingCell = null;
   save();
-  renderWorkout();
+  spanEl.textContent = field === 'rest' ? formatMS(Math.round(numVal)) : (numVal || 0);
+  inp.replaceWith(spanEl);
 }
 
-function cancelCellEdit() {
-  if (!state.activeSession) return;
-  state.activeSession.editingCell = null;
-  renderWorkout();
+function cancelCellEdit(inp, spanEl) {
+  if (inp._done) return;
+  inp._done = true;
+  inp.replaceWith(spanEl);
 }
 
 // ═══════════════════════════════════════════════════
@@ -901,9 +908,9 @@ function buildExerciseCard(ex, exIdx, cursor, ses) {
     tr.appendChild(tdNum);
 
     // Weight col
-    tr.appendChild(buildNumCell(set.weight, exIdx, setIdx, 'weight', ses));
+    tr.appendChild(buildNumCell(set.weight, exIdx, setIdx, 'weight'));
     // Reps col
-    tr.appendChild(buildNumCell(set.reps, exIdx, setIdx, 'reps', ses));
+    tr.appendChild(buildNumCell(set.reps, exIdx, setIdx, 'reps'));
 
     // Rest col
     tr.appendChild(buildRestCell(set, exIdx, setIdx, cursor, isLastSet(setIdx), isResting, ses));
@@ -919,38 +926,18 @@ function buildExerciseCard(ex, exIdx, cursor, ses) {
   return card;
 }
 
-function buildNumCell(value, exIdx, setIdx, field, ses) {
+function buildNumCell(value, exIdx, setIdx, field) {
   const td = document.createElement('td');
-  const ec = ses.editingCell;
-  const isEditing = ec && ec.exerciseIndex === exIdx && ec.setIndex === setIdx && ec.field === field;
-
-  if (isEditing) {
-    const inp = document.createElement('input');
-    inp.type = 'number';
-    inp.inputMode = 'decimal';
-    inp.className = 'cell-edit-input';
-    inp.id = `edit-input-${exIdx}-${setIdx}-${field}`;
-    inp.value = value || 0;
-    inp.onblur = (e) => commitCellEdit(exIdx, setIdx, field, e.target.value);
-    inp.onkeydown = (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); commitCellEdit(exIdx, setIdx, field, e.target.value); }
-      if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit(); }
-    };
-    td.appendChild(inp);
-  } else {
-    const span = document.createElement('span');
-    span.className = 'cell-readonly';
-    span.textContent = value || 0;
-    span.onclick = () => startCellEdit(exIdx, setIdx, field);
-    td.appendChild(span);
-  }
+  const span = document.createElement('span');
+  span.className = 'cell-readonly';
+  span.textContent = value || 0;
+  span.onclick = (e) => startCellEdit(e.currentTarget, exIdx, setIdx, field);
+  td.appendChild(span);
   return td;
 }
 
 function buildRestCell(set, exIdx, setIdx, cursor, isLast, isResting, ses) {
   const td = document.createElement('td');
-  const ec = ses.editingCell;
-  const isEditingRest = ec && ec.exerciseIndex === exIdx && ec.setIndex === setIdx && ec.field === 'rest';
 
   if (isLast) {
     // Last set: never shows rest
@@ -974,29 +961,12 @@ function buildRestCell(set, exIdx, setIdx, cursor, isLast, isResting, ses) {
   }
 
   if (set.restSeconds !== null && set.restSeconds !== undefined && setIdx < cursor) {
-    // Completed row with recorded rest — double-click editable
-    if (isEditingRest) {
-      const inp = document.createElement('input');
-      inp.type = 'number';
-      inp.inputMode = 'decimal';
-      inp.className = 'cell-edit-input';
-      inp.id = `edit-input-${exIdx}-${setIdx}-rest`;
-      inp.value = set.restSeconds;
-      inp.style.width = '56px';
-      inp.onblur = (e) => commitCellEdit(exIdx, setIdx, 'rest', e.target.value);
-      inp.onkeydown = (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); commitCellEdit(exIdx, setIdx, 'rest', e.target.value); }
-        if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit(); }
-      };
-      td.appendChild(inp);
-    } else {
-      const span = document.createElement('span');
-      span.id = `rest-cell-${exIdx}-${setIdx}`;
-      span.className = 'cell-readonly rest-display';
-      span.textContent = formatMS(set.restSeconds);
-      span.onclick = () => startCellEdit(exIdx, setIdx, 'rest');
-      td.appendChild(span);
-    }
+    const span = document.createElement('span');
+    span.id = `rest-cell-${exIdx}-${setIdx}`;
+    span.className = 'cell-readonly rest-display';
+    span.textContent = formatMS(set.restSeconds);
+    span.onclick = (e) => startCellEdit(e.currentTarget, exIdx, setIdx, 'rest');
+    td.appendChild(span);
     return td;
   }
 
@@ -1048,7 +1018,6 @@ function buildActionCell(setIdx, cursor, exIdx, isLast, isResting) {
 function startRest(exIdx) {
   const ses = state.activeSession;
   const cursor = ses.currentSetCursors[exIdx] ?? 0;
-  ses.editingCell = null;  // dismiss any open edit
   ses.restingState = { exerciseIndex: exIdx, setIndex: cursor, restStartedAt: Date.now() };
   save();
   renderWorkout();
