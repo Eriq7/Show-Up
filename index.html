@@ -209,7 +209,7 @@
   .sets-table th:first-child { width: 30px; }
   .sets-table th:nth-child(2), .sets-table th:nth-child(3) { width: 60px; }
   .sets-table th:nth-child(4) { width: 72px; }
-  .sets-table th:last-child { width: 90px; }
+  .sets-table th:last-child { width: 108px; }
 
   .sets-table td {
     padding: 8px 4px;
@@ -265,10 +265,20 @@
     font-weight: 600;
     font-size: 14px;
   }
+  .rest-display.rest-reference {
+    color: var(--muted);
+    opacity: 0.55;
+  }
 
   /* Action buttons col 5 */
+  .action-cell-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
   .btn-action {
-    width: 80px;
+    width: 62px;
     height: 44px;
     border-radius: 8px;
     border: none;
@@ -308,6 +318,30 @@
     font-size: 16px;
   }
 
+  .btn-del-set {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: inherit;
+    touch-action: manipulation;
+  }
+  .btn-del-set:hover,
+  .btn-del-set:active {
+    background: rgba(220, 38, 38, 0.12);
+    color: var(--danger);
+  }
+
   @keyframes pulse-resting {
     0%, 100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.35); }
     50% { box-shadow: 0 0 0 6px rgba(234, 88, 12, 0); }
@@ -333,6 +367,22 @@
     font-family: inherit;
     touch-action: manipulation;
   }
+  .btn-add-set {
+    display: block;
+    width: calc(100% - 28px);
+    margin: 10px 14px 14px;
+    padding: 10px;
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+  }
+  .btn-add-set:active { background: var(--bg3); }
   .btn-end-workout {
     width: 100%;
     padding: 14px;
@@ -709,7 +759,7 @@ function enterRoutine(routineKey) {
     sets: ex.sets.map(s => ({
       weight: s.weight || 0,
       reps: s.reps || 0,
-      restSeconds: null
+      restSeconds: s.restSeconds ?? null
     }))
   }));
 
@@ -926,6 +976,13 @@ function buildExerciseCard(ex, exIdx, cursor, ses) {
 
   table.appendChild(tbody);
   card.appendChild(table);
+
+  const addSetBtn = document.createElement('button');
+  addSetBtn.className = 'btn-add-set';
+  addSetBtn.textContent = '＋ 添加一组';
+  addSetBtn.onclick = () => addSet(exIdx);
+  card.appendChild(addSetBtn);
+
   return card;
 }
 
@@ -973,6 +1030,16 @@ function buildRestCell(set, exIdx, setIdx, cursor, isLast, isResting, ses) {
     return td;
   }
 
+  if (set.restSeconds !== null && set.restSeconds !== undefined && setIdx >= cursor) {
+    // Not yet redone this session: show last recorded value as a reference
+    const span = document.createElement('span');
+    span.id = `rest-cell-${exIdx}-${setIdx}`;
+    span.className = 'rest-display rest-reference';
+    span.textContent = formatMS(set.restSeconds);
+    td.appendChild(span);
+    return td;
+  }
+
   // Empty / pending
   const span = document.createElement('span');
   span.id = `rest-cell-${exIdx}-${setIdx}`;
@@ -984,6 +1051,9 @@ function buildRestCell(set, exIdx, setIdx, cursor, isLast, isResting, ses) {
 
 function buildActionCell(setIdx, cursor, exIdx, isLast, isResting) {
   const td = document.createElement('td');
+  const wrap = document.createElement('div');
+  wrap.className = 'action-cell-wrap';
+
   const btn = document.createElement('button');
   btn.className = 'btn-action';
 
@@ -1011,7 +1081,14 @@ function buildActionCell(setIdx, cursor, exIdx, isLast, isResting) {
     btn.className += ' done-indicator';
   }
 
-  td.appendChild(btn);
+  const delBtn = document.createElement('button');
+  delBtn.className = 'btn-del-set';
+  delBtn.textContent = '✕';
+  delBtn.onclick = () => deleteSet(exIdx, setIdx);
+
+  wrap.appendChild(btn);
+  wrap.appendChild(delBtn);
+  td.appendChild(wrap);
   return td;
 }
 
@@ -1030,7 +1107,7 @@ function stopRest(exIdx) {
   const ses = state.activeSession;
   if (!ses.restingState) return;
   const { restStartedAt, setIndex } = ses.restingState;
-  const restSeconds = Math.round((Date.now() - restStartedAt) / 1000) + 10;
+  const restSeconds = Math.round((Date.now() - restStartedAt) / 1000);
   ses.exercises[exIdx].sets[setIndex].restSeconds = restSeconds;
   ses.currentSetCursors[exIdx] = (ses.currentSetCursors[exIdx] ?? 0) + 1;
   ses.restingState = null;
@@ -1045,6 +1122,51 @@ function completeLastSet(exIdx) {
   ex.sets[lastIdx].restSeconds = null;
   ses.currentSetCursors[exIdx] = lastIdx + 1;
   ses.restingState = null;
+  save();
+  renderWorkout();
+}
+
+// ═══════════════════════════════════════════════════
+//  SET ADD / DELETE
+// ═══════════════════════════════════════════════════
+function addSet(exIdx) {
+  const ses = state.activeSession;
+  const ex = ses.exercises[exIdx];
+  const last = ex.sets[ex.sets.length - 1];
+  ex.sets.push({
+    weight: last ? last.weight || 0 : 0,
+    reps: last ? last.reps || 0 : 0,
+    restSeconds: null
+  });
+  save();
+  renderWorkout();
+}
+
+function deleteSet(exIdx, setIdx) {
+  const ses = state.activeSession;
+  const ex = ses.exercises[exIdx];
+
+  if (ex.sets.length <= 1) {
+    alert('至少保留一组，如需删除请删除整个动作');
+    return;
+  }
+  if (!confirm(`删除第 ${setIdx + 1} 组？`)) return;
+
+  ex.sets.splice(setIdx, 1);
+
+  const cursor = ses.currentSetCursors[exIdx] ?? 0;
+  let newCursor = cursor;
+  if (setIdx < cursor) newCursor = cursor - 1;
+  ses.currentSetCursors[exIdx] = Math.max(0, Math.min(newCursor, ex.sets.length));
+
+  if (ses.restingState && ses.restingState.exerciseIndex === exIdx) {
+    if (ses.restingState.setIndex === setIdx) {
+      ses.restingState = null;
+    } else if (ses.restingState.setIndex > setIdx) {
+      ses.restingState.setIndex -= 1;
+    }
+  }
+
   save();
   renderWorkout();
 }
