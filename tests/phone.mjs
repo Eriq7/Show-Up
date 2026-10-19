@@ -1,0 +1,133 @@
+// Test harness: runs the real index.html in jsdom the way it lives on the phone.
+// The phone owns the clock and the disk (localStorage), so killing and
+// relaunching the app keeps whatever the app managed to save.
+import { JSDOM } from 'jsdom';
+import { readFileSync } from 'node:fs';
+
+const HTML = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+
+export const MINUTE = 60 * 1000;
+export const HOUR = 60 * MINUTE;
+
+// jsdom fires hashchange from setImmediate; queueing behind it keeps order deterministic.
+const tick = () => new Promise(r => setImmediate(r));
+export const wait = ms => new Promise(r => setTimeout(r, ms));
+
+export class Phone {
+  now = Date.UTC(2026, 9, 19, 22);
+  disk = {};
+  app = null;
+  dialogs = [];
+  confirmAnswer = true;
+
+  advance(ms) { this.now += ms; }
+
+  // Cold start: kill the running app (if any) and boot from disk.
+  async launch() {
+    this.kill();
+    const phone = this;
+    const dom = new JSDOM(HTML, {
+      url: 'https://showup.test/',
+      runScripts: 'dangerously',
+      pretendToBeVisual: true,
+      beforeParse(window) {
+        window.Date.now = () => phone.now;
+        for (const [k, v] of Object.entries(phone.disk)) window.localStorage.setItem(k, v);
+        window.confirm = msg => { phone.dialogs.push(msg); return phone.confirmAnswer; };
+        window.alert = msg => { phone.dialogs.push(msg); };
+        window.HTMLElement.prototype.scrollIntoView = () => {};
+      },
+    });
+    await new Promise(r => dom.window.addEventListener('load', r));
+    this.app = new App(dom.window);
+    return this.app;
+  }
+
+  kill() {
+    if (!this.app) return;
+    const ls = this.app.window.localStorage;
+    this.disk = {};
+    for (let i = 0; i < ls.length; i++) this.disk[ls.key(i)] = ls.getItem(ls.key(i));
+    this.app.window.close();
+    this.app = null;
+  }
+}
+
+// What the user can see and tap.
+class App {
+  constructor(window) {
+    this.window = window;
+    this.doc = window.document;
+  }
+
+  $(sel) { return this.doc.querySelector(sel); }
+
+  get page() {
+    return this.$('#page-workout').style.display === 'block' ? 'workout' : 'home';
+  }
+
+  get timer() { return this.$('#global-timer').textContent; }
+
+  // '胸' | '肩' | '背' — taps the matching dragon head on the home page.
+  async openRoutine(name) {
+    this.$(`button[aria-label="${name}训练"]`).click();
+    await tick();
+  }
+
+  async goHome() {
+    this.$('#btn-back').click();
+    await tick();
+  }
+
+  addExercise(name, sets) {
+    this.$('.btn-add-exercise').click();
+    this.$('#modal-name').value = name;
+    this.$('#modal-sets').value = String(sets);
+    this.$('.modal-confirm').click();
+  }
+
+  row(exIdx, setIdx) {
+    return this.$(`#exercise-card-${exIdx}`).querySelectorAll('tbody tr')[setIdx];
+  }
+
+  // Taps a number cell, leaving the keyboard up on its input.
+  tapCell(exIdx, setIdx, field) {
+    const col = { weight: 1, reps: 2, rest: 3 }[field];
+    this.row(exIdx, setIdx).children[col].querySelector('span').click();
+    return this.doc.activeElement;
+  }
+
+  // Types into whatever input has focus, keystroke by keystroke.
+  type(text) {
+    const inp = this.doc.activeElement;
+    inp.value = '';
+    for (const ch of text) {
+      inp.value += ch;
+      inp.dispatchEvent(new this.window.Event('input', { bubbles: true }));
+    }
+  }
+
+  // Full edit: tap, type, dismiss the keyboard.
+  editCell(exIdx, setIdx, field, value) {
+    const inp = this.tapCell(exIdx, setIdx, field);
+    this.type(String(value));
+    inp.blur();
+  }
+
+  tapAction(exIdx, setIdx) {
+    this.row(exIdx, setIdx).querySelector('.btn-action').click();
+  }
+
+  async endWorkout() {
+    this.$('.btn-end-workout').click();
+    this.$('.confirm-ok').click();
+    await tick();
+  }
+
+  // [] when the exercise isn't on the page at all.
+  weights(exIdx) {
+    const card = this.$(`#exercise-card-${exIdx}`);
+    if (!card) return [];
+    return [...card.querySelectorAll('tbody tr')].map(tr => Number(tr.children[1].textContent));
+  }
+}

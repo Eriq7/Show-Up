@@ -727,10 +727,11 @@ function render() {
   const home = document.getElementById('page-home');
   const workout = document.getElementById('page-workout');
 
+  endStaleSession();
   if (routineKeys.includes(hash)) {
+    if (!enterRoutine(hash)) { goHome(); return; }
     home.style.display = 'none';
     workout.style.display = 'block';
-    enterRoutine(hash);
     renderWorkout();
   } else {
     home.style.display = 'flex';
@@ -745,11 +746,29 @@ window.addEventListener('load', () => { load(); render(); });
 // ═══════════════════════════════════════════════════
 //  SESSION MANAGEMENT
 // ═══════════════════════════════════════════════════
+const SESSION_MAX_MS = 4 * 60 * 60 * 1000;
+
+// No real workout lasts this long: it was finished but never ended.
+function isStale(ses) {
+  return Date.now() - ses.startedAt > SESSION_MAX_MS;
+}
+
+function endStaleSession() {
+  if (state.activeSession && isStale(state.activeSession)) finishSession();
+}
+
+// Returns false if the user chose to keep the other routine's workout going.
 function enterRoutine(routineKey) {
   const ses = state.activeSession;
   if (ses && ses.routineKey === routineKey) {
     startTimers();
-    return;
+    return true;
+  }
+  if (ses) {
+    const from = state.routines[ses.routineKey].displayName;
+    const to = state.routines[routineKey].displayName;
+    if (!confirm(`${from}训练还没结束。保存${from}训练，开始${to}训练？`)) return false;
+    finishSession();
   }
 
   const routine = state.routines[routineKey];
@@ -777,6 +796,7 @@ function enterRoutine(routineKey) {
 
   save();
   startTimers();
+  return true;
 }
 
 // ═══════════════════════════════════════════════════
@@ -810,6 +830,8 @@ function formatMS(seconds) {
 function updateTimers() {
   const ses = state.activeSession;
   if (!ses) return;
+  // App was left open (e.g. suspended in the background): save it and start fresh.
+  if (isStale(ses)) { render(); return; }
 
   const elapsed = Math.floor((Date.now() - ses.startedAt) / 1000);
   const timerEl = document.getElementById('global-timer');
@@ -836,44 +858,53 @@ function startCellEdit(spanEl, exIdx, setIdx, field) {
       ses.restingState.exerciseIndex === exIdx &&
       ses.restingState.setIndex === setIdx) return;
 
+  const set = ses.exercises[exIdx].sets[setIdx];
+  const original = { ...set };
   const inp = document.createElement('input');
   inp.type = 'number';
   inp.inputMode = 'decimal';
   inp.className = 'cell-edit-input';
   if (field === 'rest') {
     inp.style.width = '56px';
-    inp.value = ses.exercises[exIdx].sets[setIdx].restSeconds ?? 0;
+    inp.value = set.restSeconds ?? 0;
   } else {
     inp.value = parseFloat(spanEl.textContent) || 0;
   }
-  inp.onblur = () => commitCellEdit(inp, spanEl, exIdx, setIdx, field, inp.value);
+  // Save every keystroke: on iOS tapping a button doesn't blur the input,
+  // so the next re-render (or ending the workout) can drop it without a blur.
+  inp.oninput = () => setCellValue(set, field, inp.value);
+  inp.onblur = () => commitCellEdit(inp, spanEl, set, field);
   inp.onkeydown = (e) => {
-    if (e.key === 'Enter')  { e.preventDefault(); commitCellEdit(inp, spanEl, exIdx, setIdx, field, inp.value); }
-    if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit(inp, spanEl); }
+    if (e.key === 'Enter')  { e.preventDefault(); commitCellEdit(inp, spanEl, set, field); }
+    if (e.key === 'Escape') { e.preventDefault(); cancelCellEdit(inp, spanEl, set, original); }
   };
   spanEl.replaceWith(inp);
   inp.focus();
   inp.select();
 }
 
-function commitCellEdit(inp, spanEl, exIdx, setIdx, field, value) {
-  if (inp._done) return;
-  inp._done = true;
-  const ses = state.activeSession;
-  if (!ses) return;
+function setCellValue(set, field, value) {
   const numVal = parseFloat(value) || 0;
-  const set = ses.exercises[exIdx].sets[setIdx];
   if (field === 'weight') set.weight = numVal;
   else if (field === 'reps') set.reps = Math.round(numVal);
   else if (field === 'rest') set.restSeconds = Math.round(numVal);
   save();
+}
+
+function commitCellEdit(inp, spanEl, set, field) {
+  if (inp._done) return;
+  inp._done = true;
+  setCellValue(set, field, inp.value);
+  const numVal = parseFloat(inp.value) || 0;
   spanEl.textContent = field === 'rest' ? formatMS(Math.round(numVal)) : (numVal || 0);
   inp.replaceWith(spanEl);
 }
 
-function cancelCellEdit(inp, spanEl) {
+function cancelCellEdit(inp, spanEl, set, original) {
   if (inp._done) return;
   inp._done = true;
+  Object.assign(set, original);
+  save();
   inp.replaceWith(spanEl);
 }
 
@@ -1242,7 +1273,8 @@ function cancelEndWorkout() {
   document.getElementById('end-confirm-overlay').classList.remove('open');
 }
 
-function confirmEndWorkout() {
+// Copy the active session into its routine as next time's template, then clear it.
+function finishSession() {
   const ses = state.activeSession;
   if (ses) {
     const routineKey = ses.routineKey;
@@ -1251,6 +1283,10 @@ function confirmEndWorkout() {
   }
   state.activeSession = null;
   save();
+}
+
+function confirmEndWorkout() {
+  finishSession();
   stopTimers();
   const t = document.getElementById('global-timer');
   if (t) t.textContent = '00:00:00';
