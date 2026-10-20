@@ -384,6 +384,40 @@
     touch-action: manipulation;
   }
   .btn-add-set:active { background: var(--bg3); }
+
+  /* Exercise note: grows with its text. The hidden ::after copy of the text
+     sizes the grid cell, and the textarea fills that cell. */
+  .exercise-note-wrap {
+    display: grid;
+    margin: 0 14px 14px;
+  }
+  .exercise-note-wrap::after {
+    content: attr(data-value) ' ';
+    white-space: pre-wrap;
+    word-break: break-word;
+    visibility: hidden;
+  }
+  .exercise-note,
+  .exercise-note-wrap::after {
+    grid-area: 1 / 1 / 2 / 2;
+    min-height: 40px;
+    padding: 9px 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .exercise-note {
+    resize: none;
+    overflow: hidden;
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+  }
+  .exercise-note:focus { border-color: var(--primary); }
+  .exercise-note::placeholder { color: var(--muted); opacity: 0.6; }
   .btn-end-workout {
     width: 100%;
     padding: 14px;
@@ -899,6 +933,7 @@ function enterRoutine(routineKey) {
   const templateExercises = JSON.parse(JSON.stringify(routine.exercises));
   const sessionExercises = templateExercises.map(ex => ({
     name: ex.name,
+    note: ex.note || '',
     sets: ex.sets.map(s => ({
       weight: s.weight || 0,
       reps: s.reps || 0,
@@ -1138,7 +1173,29 @@ function buildExerciseCard(ex, exIdx, cursor, ses) {
   addSetBtn.onclick = () => addSet(exIdx);
   card.appendChild(addSetBtn);
 
+  card.appendChild(buildNote(ex));
+
   return card;
+}
+
+function buildNote(ex) {
+  const wrap = document.createElement('div');
+  wrap.className = 'exercise-note-wrap';
+  wrap.dataset.value = ex.note || '';
+
+  const note = document.createElement('textarea');
+  note.className = 'exercise-note';
+  note.rows = 1;
+  note.placeholder = '备注（可选）';
+  note.value = ex.note || '';
+  // Saved on every keystroke, like the number cells: iOS may not blur before the next tap.
+  note.oninput = () => {
+    ex.note = note.value;
+    wrap.dataset.value = note.value;
+    save();
+  };
+  wrap.appendChild(note);
+  return wrap;
 }
 
 function buildNumCell(value, exIdx, setIdx, field) {
@@ -1357,7 +1414,7 @@ function confirmAddExercise() {
   });
 
   const newExIdx = ses.exercises.length;
-  ses.exercises.push({ name, sets });
+  ses.exercises.push({ name, note: templateEx ? templateEx.note || '' : '', sets });
   ses.currentSetCursors[newExIdx] = 0;
 
   save();

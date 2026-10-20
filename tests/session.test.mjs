@@ -85,6 +85,38 @@ test('a number still being typed when the workout is ended is saved for next tim
   assert.deepEqual(app.weights(0), [70, 0, 0]);
 });
 
+test('a note written on an exercise is there the next time that routine is trained', async () => {
+  phone = new Phone();
+  const app = await phone.launch();
+  await app.openRoutine('胸');
+  app.addExercise('平板卧推', 3);
+
+  app.writeNote(0, '左肩有点紧\n下次先热身');
+  await app.endWorkout();
+  await app.openRoutine('胸');
+
+  assert.equal(app.note(0), '左肩有点紧\n下次先热身');
+});
+
+test('workouts saved before notes existed still open, with an empty note', async () => {
+  phone = new Phone();
+  phone.disk['showup:state'] = JSON.stringify({
+    routines: {
+      chest: { displayName: '胸', lastTrainedAt: phone.now - HOUR, exercises: [
+        { name: '平板卧推', sets: [{ weight: 60, reps: 8, restSeconds: 90 }, { weight: 60, reps: 8, restSeconds: null }] }
+      ] },
+      shoulders: { displayName: '肩', lastTrainedAt: null, exercises: [] },
+      back: { displayName: '背', lastTrainedAt: null, exercises: [] }
+    },
+    activeSession: null
+  });
+  const app = await phone.launch();
+
+  await app.openRoutine('胸');
+
+  assert.deepEqual({ weights: app.weights(0), note: app.note(0) }, { weights: [60, 60], note: '' });
+});
+
 test('a number still being typed when the next button is tapped is kept', async () => {
   phone = new Phone();
   const app = await phone.launch();

@@ -9,7 +9,7 @@
 - **使用方式**：用户在 iPhone 上用，大概率是「添加到主屏幕」的 Web App（有 `manifest.webmanifest` 和 `apple-touch-icon`，没跟用户确认过）。
 - **数据在两处**：App 实际用的是手机 localStorage 里的 `showup:state`。登录后会同步到 Supabase（见下面「云端」），没登录就只在手机上。Agent 能用 `supabase db query --linked` 查云端数据，但查不到没登录的手机。
 - **状态模型**：
-  - `state.routines.{chest,shoulders,back}.exercises`：下次训练的模板。
+  - `state.routines.{chest,shoulders,back}.exercises`：下次训练的模板。每个动作是 `{ name, note, sets }`。`note` 是 2026-10-19 加的，之前存的数据没有这个字段，读的时候按空字符串处理（`ex.note || ''`）。
   - `state.activeSession`：进行中的那一场，**同一时间只有一场**。
   - `finishSession()`：把 `activeSession` 拷回对应部位的模板并清空，同时把这次训练放进“待上传”队列。结束训练、4 小时自动结束、切换部位都走它。
   - 每次改 `state` 后都要调 `save()`。它写 localStorage，并标记“有改动没上传”、触发同步。从云端拉下来的数据用 `writeState()` 写，不算改动。
@@ -104,6 +104,22 @@ cd tests && npm install && npm test   # 约 2 秒
 ---
 
 ## 记录
+
+### 2026-10-19：每个动作加备注
+
+**做了什么**
+- 动作卡片分成三块：名称、组数表格、备注。
+- 备注框一开始一行高，跟着内容自动变高。做法是用一个隐藏的 `::after` 复制同样的文字来撑开网格，所以不用 JS 测高度。
+- 每次输入都保存，跟数字格一样。开始新一场训练时，备注从模板带过来；结束训练时，跟着动作写回模板。
+- 删掉动作后再按同名添加，备注也会从模板带回来。
+- `showup:state` 没有改结构，只是动作多了一个可选的 `note` 字段，旧数据不用迁移。
+
+**验证**
+- 测试加了 2 条，共 16 条：
+  - 备注下次训练还在。
+  - 没有 `note` 的旧数据能正常打开。
+- 把“开始训练时带上备注”那行临时去掉，第一条会失败。
+- agent-browser 实测：空的 41px，写到三行 83px，删短后缩回来，刷新后还在。
 
 ### 2026-10-19：加云端同步和注册登录（Supabase + Brevo）
 

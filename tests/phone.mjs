@@ -170,6 +170,14 @@ class App {
     await this.phone.settle();
   }
 
+  note(exIdx) { return this.$(`#exercise-card-${exIdx} .exercise-note`).value; }
+
+  // Taps the note box and types, keystroke by keystroke, leaving the keyboard up.
+  writeNote(exIdx, text) {
+    this.$(`#exercise-card-${exIdx} .exercise-note`).focus();
+    this.type(text);
+  }
+
   // [] when the exercise isn't on the page at all.
   weights(exIdx) {
     const card = this.$(`#exercise-card-${exIdx}`);
