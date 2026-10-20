@@ -3,6 +3,7 @@
 // relaunching the app keeps whatever the app managed to save.
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
+import { Cloud } from './cloud.mjs';
 
 const HTML = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 
@@ -20,7 +21,27 @@ export class Phone {
   dialogs = [];
   confirmAnswer = true;
 
+  // Pass the same cloud to a second Phone to model a new phone (or a re-added icon) on the same account.
+  constructor(cloud = new Cloud()) { this.cloud = cloud; }
+
   advance(ms) { this.now += ms; }
+
+  goOffline() { this.cloud.online = false; }
+
+  // The browser fires `online` when the connection comes back.
+  async goOnline() {
+    this.cloud.online = true;
+    this.app?.window.dispatchEvent(new this.app.window.Event('online'));
+    await this.settle();
+  }
+
+  // Waits until the app has stopped talking to the cloud.
+  async settle() {
+    for (let quiet = 0; quiet < 5; ) {
+      await tick();
+      quiet = this.cloud.inflight ? 0 : quiet + 1;
+    }
+  }
 
   // Cold start: kill the running app (if any) and boot from disk.
   async launch() {
@@ -32,6 +53,7 @@ export class Phone {
       pretendToBeVisual: true,
       beforeParse(window) {
         window.Date.now = () => phone.now;
+        window.showUpCloud = phone.cloud.connect(window);
         for (const [k, v] of Object.entries(phone.disk)) window.localStorage.setItem(k, v);
         window.confirm = msg => { phone.dialogs.push(msg); return phone.confirmAnswer; };
         window.alert = msg => { phone.dialogs.push(msg); };
@@ -39,7 +61,8 @@ export class Phone {
       },
     });
     await new Promise(r => dom.window.addEventListener('load', r));
-    this.app = new App(dom.window);
+    this.app = new App(dom.window, this);
+    await this.settle();
     return this.app;
   }
 
@@ -55,9 +78,10 @@ export class Phone {
 
 // What the user can see and tap.
 class App {
-  constructor(window) {
+  constructor(window, phone) {
     this.window = window;
     this.doc = window.document;
+    this.phone = phone;
   }
 
   $(sel) { return this.doc.querySelector(sel); }
@@ -67,6 +91,27 @@ class App {
   }
 
   get timer() { return this.$('#global-timer').textContent; }
+
+  get syncStatus() { return this.$('#sync-status').textContent; }
+
+  // Fills the login sheet: 'signin' | 'signup' | 'forgot'.
+  async #submitAuth(view, fields) {
+    if (!this.$('#auth-overlay').classList.contains('open')) this.$('#btn-login').click();
+    if (view) this.$(`[data-auth-view="${view}"]`)?.click();
+    for (const [id, value] of Object.entries(fields)) this.$(`#auth-${id}`).value = value;
+    this.$('#auth-submit').click();
+    await this.phone.settle();
+  }
+
+  signUp(email, password) { return this.#submitAuth('signup', { email, password }); }
+  signIn(email, password) { return this.#submitAuth('signin', { email, password }); }
+  enterCode(code) { return this.#submitAuth(null, { code }); }
+
+  // Sign up and type in the code from the email.
+  async register(email, password) {
+    await this.signUp(email, password);
+    await this.enterCode(this.phone.cloud.lastCode(email));
+  }
 
   // '胸' | '肩' | '背' — taps the matching dragon head on the home page.
   async openRoutine(name) {
@@ -122,6 +167,7 @@ class App {
     this.$('.btn-end-workout').click();
     this.$('.confirm-ok').click();
     await tick();
+    await this.phone.settle();
   }
 
   // [] when the exercise isn't on the page at all.

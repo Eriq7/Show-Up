@@ -7,13 +7,24 @@
 - **单文件应用**：所有逻辑都在 `index.html` 的 `<script>` 里，没有构建步骤。`plan.md` 是最初的产品设计。
 - **部署**：GitHub `Eriq7/Show-Up`，推到 `main` 会由 Vercel 自动部署到生产环境。推送前先问用户。
 - **使用方式**：用户在 iPhone 上用，大概率是「添加到主屏幕」的 Web App（有 `manifest.webmanifest` 和 `apple-touch-icon`，没跟用户确认过）。
-- **数据只在手机上**：存在手机浏览器 localStorage 的 `showup:state` 里，只有一份最新状态，没有历史，也没有服务器。Agent 看不到用户的数据，丢了就找不回。用户只能描述现象，所以根因要靠读代码找。
+- **数据在两处**：App 实际用的是手机 localStorage 里的 `showup:state`。登录后会同步到 Supabase（见下面「云端」），没登录就只在手机上。Agent 能用 `supabase db query --linked` 查云端数据，但查不到没登录的手机。
 - **状态模型**：
   - `state.routines.{chest,shoulders,back}.exercises`：下次训练的模板。
   - `state.activeSession`：进行中的那一场，**同一时间只有一场**。
-  - `finishSession()`：把 `activeSession` 拷回对应部位的模板并清空。结束训练、4 小时自动结束、切换部位都走它。
-  - 每次改 `state` 后都要调 `save()`。`render()` 是路由入口，页面加载和 `hashchange` 时都会调。
+  - `finishSession()`：把 `activeSession` 拷回对应部位的模板并清空，同时把这次训练放进“待上传”队列。结束训练、4 小时自动结束、切换部位都走它。
+  - 每次改 `state` 后都要调 `save()`。它写 localStorage，并标记“有改动没上传”、触发同步。从云端拉下来的数据用 `writeState()` 写，不算改动。
+  - `render()` 是路由入口，页面加载和 `hashchange` 时都会调。
+- **同步用的另外两个 key**（`showup:state` 的结构没变）：
+  - `showup:sync`：`{ userId, dirty, localUpdatedAt, cloudSeenAt }`。`dirty` = 有改动没上传；`cloudSeenAt` = 上次上传或下载时云端那份的 `updated_at`。云端的值跟它不一样，说明别的设备改过。
+  - `showup:pending`：结束了但还没传进云端历史的训练，按时间先后排。
+- **同步规则**（`syncOnce()`）：先补传 `pending`，再拉云端那份比较：
+  - 云端没变：本地有改动就上传。
+  - 云端变了，本地没改动或本地是空的：用云端的。
+  - 两边都改了：以 `updated_at` 新的为准，旧的那份存进 `state_backups`，不丢。
+  - 什么时候同步：每次 `save()` 后、`online`、`pageshow`、切回前台（`visibilitychange`）、App 开着时每 30 秒。iOS 没有后台同步，App 关着时不会上传。
 - **不要随便改 `showup:state` 的结构**：用户的真实数据就存在这个格式里，要改就得写迁移。
+- **绝不能让用户删除或重新添加主屏幕图标，也不能让用户清 Safari 的网站数据。** iOS 上每个主屏幕图标有自己独立的存储，跟 Safari 不共用。图标删掉，那份数据就再也打不开了（2026-10-19 真的因此丢过一次数据，见下面的记录）。要让手机加载新版本，就说：“在多任务界面把 App 上滑关掉，再从同一个图标打开，不要删图标。”
+- **正式网址只有 `show-up-rose.vercel.app`**。不要把 Vercel 部署专属的随机网址（`show-xxxx-eriq7s-projects.vercel.app`）发给用户当入口。
 
 ## 调试流程
 
@@ -34,8 +45,13 @@ cd tests && npm install && npm test   # 约 2 秒
   - `Phone` 模拟一部手机，管时钟（`Date.now`）和“磁盘”（localStorage）。`advance(ms)` 拨快时钟，`launch()` 等于杀掉 App 再冷启动，数据从磁盘读回。
   - `App` 只暴露用户能做的动作（点部位、加动作、点格子、打字、点按钮、结束训练）和用户能看到的东西（当前页面、计时器、重量）。
   - `confirm()` 的返回值由 `phone.confirmAnswer` 控制，弹过的文字记在 `phone.dialogs`。
-- `tests/session.test.mjs`：测试只写在这一层，即“用户怎么操作 → 下次打开看到什么”。不要在测试里直接断言 localStorage 的内容。
-- 测试用 jsdom 加载真实的 `index.html`，不需要拆文件。
+- `tests/cloud.mjs`：假的云端，替换的是 App 的云端适配层（`window.showUpCloud`），不是 supabase-js。
+  - 一个 `Cloud` 就是服务器。把同一个 `cloud` 传给第二个 `new Phone(cloud)`，就模拟换手机或删了图标重新添加。
+  - 登录状态存在那个 App 的 localStorage 里，跟真 SDK 一样，所以 `kill()` / `launch()` 后还是登录状态，新 Phone 则没登录。
+  - `phone.goOffline()` / `phone.goOnline()` 切换网络，`goOnline()` 会派发 `online` 事件。`cloud.lastCode(email)` 是发到这个邮箱的最新验证码。
+  - `phone.settle()` 等 App 停止访问云端。`launch()`、`endWorkout()`、登录相关的方法里都已经调过了。
+- `tests/session.test.mjs`（训练流程）和 `tests/sync.test.mjs`（同步、登录）：测试只写在这一层，即“用户怎么操作 → 下次打开看到什么”。不要在测试里直接断言 localStorage 的内容。云端是系统边界，可以断言云端收到了什么，比如 `cloud.workouts(email)`。
+- 测试用 jsdom 加载真实的 `index.html`，不需要拆文件。jsdom 不会加载 CDN 上的 supabase-js，所以测试里只有假云端。
 
 ### 坑
 
@@ -43,6 +59,29 @@ cd tests && npm install && npm test   # 约 2 秒
 - **jsdom 里点按钮不会让输入框失焦**，移除正在聚焦的输入框也不会触发 `blur`。这一点跟 iOS 很像，正好拿来模拟 iOS。
 - **每个 JSDOM 实例的 localStorage 是独立的**，所以 `Phone.kill()` 会手动把数据拷出来，下次 `launch()` 时再写回去。
 - **不关窗口进程会挂住**：App 里有 `setInterval`，测试中途抛异常、窗口没关，进程就不会退出。`afterEach` 里要调 `phone.kill()`，临时调试脚本要在 `finally` 里 kill，或者加 `--test-force-exit`。
+
+## 云端（Supabase + Brevo）
+
+- **项目**：Supabase `show-up`，ref `hirgxetardfgzaskcczo`，地区 ca-central-1，组织 `Eriq7's Org`（免费版）。仓库已 `supabase link`。
+  - 数据库密码在 macOS 钥匙串，条目 `supabase-show-up-db`。用法：`export SUPABASE_DB_PASSWORD="$(security find-generic-password -s supabase-show-up-db -w)"`。
+  - 免费版 7 天没人用会自动暂停。用户每周都练，不用管。
+- **表**（`supabase/migrations/`，用 `supabase db push` 推）：
+  - `user_state`：每人一行，存当前数据。
+  - `workouts`：训练历史，只能插入，不能改也不能删。`(user_id, client_id)` 唯一，所以重试上传不会重复。
+  - `state_backups`：两边冲突时，较旧的那份存这里。
+  - 权限全靠 RLS（`user_id = auth.uid()`）。改了表或规则后跑 `supabase db query --linked -f supabase/checks/rls.sql`，结果应该是报错 `RLS CHECK PASSED (rolled back)`。它会模拟两个用户，最后整体回滚，不留数据。
+- **App 里**：URL 和 publishable key 直接写在 `index.html` 里，这是公开的，安全靠 RLS。supabase-js 从 jsdelivr 加载，锁定 `2.117.2`。所有网络调用都在 `supabaseCloud()` 里，失败时抛出带 `code` 的错误，`'offline'` 表示没连上（Chrome 报 `Failed to fetch`，Safari 报 `Load failed`，2026-10-19 实测）。
+- **登录**：邮箱 + 密码，验证码是 6 位（项目默认是 8 位，已改）。注册用 `verifyOtp` 的 `type: 'email'`，忘记密码用 `type: 'recovery'`。这两种在真实项目上都测通过（2026-10-19）。不用邮件链接，因为主屏幕 App 里点链接会跳到 Safari，登录完成不了。
+- **`supabase config push` 的坑**（CLI 2.109.1）：
+  - **不会先问就直接推**，也没有 dry-run。往 stdin 塞个 `n` 也照推。
+  - 推的是整份 `config.toml`。`[storage.vector] enabled = true` 在免费版会报 402，已改成 `false`。
+  - `config.toml` 里**没有** `[auth.email.smtp]` 这一节，所以推送时不会动后台的 SMTP 设置（查过 CLI 源码 `pkg/config/auth.go`：`Smtp == nil` 就不改）。**不要加这一节**，加了就会用本地值覆盖后台，还要求有 SMTP 密码。
+  - 免费版没配自定义 SMTP 时不能改邮件模板，会报 400。
+- **发信**：Supabase 后台 → Authentication → Emails → SMTP Settings，用的是 Brevo。
+  - Host `smtp-relay.brevo.com`，Port 587，Username `b19655001@smtp-brevo.com`，发件人 `ericli6897@gmail.com`，名字 `Show Up`。
+  - 收件人看到的发件地址是 `ericli6897@11638357.brevosend.com`，因为 Brevo 会改写 Gmail 发件人。
+  - 密码是 Brevo 的 SMTP key `show-up`，用户自己在后台填的，Agent 不经手。
+  - **这个 key 连续 90 天没用就会失效**（Brevo 的规则，有效期选了“永不过期”也一样）。失效后注册和忘记密码的邮件会发不出去，已经登录的人不受影响。遇到“收不到验证码”先查这个。
 
 ## 浏览器工具怎么选
 
@@ -54,6 +93,8 @@ cd tests && npm install && npm test   # 约 2 秒
   - 在 `open` 之前设 `agent-browser viewport 390 844` 没生效，截图还是 1280 宽。原因没查。
   - 有 Xcode 的话，`agent-browser -p ios` 可以驱动 iOS 模拟器里的真 Safari。这台机器上没有。
 - **Claude in Chrome**：只在需要用户登录态时用。它的规则是不能触发 alert/confirm，否则扩展会卡住。而本 App 切换部位、删除组、删除动作都会弹原生 `confirm`。
+- **账号相关的必须让用户自己来**：不管用哪个浏览器，Agent 都不能注册账号、输密码、输验证码、往设置里填密钥。App 的登录要经过 supabase.co，不算纯本地测试，所以没有例外。分工是：用户登录、输验证码，登录后不涉及密码的操作 Agent 可以在 Chrome 里接着点。
+- **本地测“新设备”**：同一个服务器用 `127.0.0.1:8765` 和 `localhost:8765` 打开，浏览器把它们当成两个网站，各有一份 localStorage。
 
 ## iOS 已知行为
 
@@ -63,6 +104,57 @@ cd tests && npm install && npm test   # 约 2 秒
 ---
 
 ## 记录
+
+### 2026-10-19：加云端同步和注册登录（Supabase + Brevo）
+
+**为什么**
+- 删图标丢数据之后（见下一条），用户要求“以后绝不能再丢数据”。手动导出导入被否决了，因为要靠人记得去做。
+
+**做了什么**
+- Supabase 项目、三张表和 RLS、邮件验证码模板，见上面「云端」。
+- App：
+  - 底部状态条：未登录 / 上传中 / 网络不好还没上传 / 上传失败会重试 / ✓ 已同步。结束训练后要等云端确认收到，才显示「✓ 已保存到云端」。
+  - 登录面板：登录、注册、输验证码、忘记密码。没登录也能照常用。
+  - 第一次登录时手机上已有的数据会上传，不会被清空（`loadSync()` 第一次运行时把已有数据标成“没上传”）。
+- 用户拍板的决定：
+  - 本地优先，云端是正本。
+  - 两边冲突时以新的为准，旧的备份。
+  - 没登录也能用。
+  - 验证码而不是邮件链接。
+  - 发信用 Brevo，不买域名。
+
+**验证**
+- 测试从 7 条加到 14 条（`tests/sync.test.mjs` 7 条）。新增的每条都把对应代码临时改坏跑过，确认会失败。连跑 8 遍没有随机失败。
+- RLS：`supabase/checks/rls.sql` 通过。把其中一条检查故意写反，它会报 FAILED。
+- 真实环境（电脑 Chrome + 本地服务器 + 真 Supabase + 测试账号 `ericli6897+showup-test@gmail.com`）：
+  - 注册 → 收验证码 → 登录，显示「✓ 已同步」。
+  - 练一组 → 结束，显示「✓ 已保存到云端」，数据库里 `user_state` 和 `workouts` 都对。
+  - 换个 origin（等于新设备）→ 忘记密码 → 验证码 → 新密码，登录后数据拉回来了。
+  - 邮件进收件箱，没进垃圾邮件，发件人显示 Show Up。
+
+**没做 / 待确认**
+- **iPhone 实测**：上线后的第一次登录，确认手机上的数据传上了云端；断网再联网。
+- **没有“退出登录”**：没需求就没做。如果以后加，要想清楚退出后本地数据怎么处理，以及换另一个账号登录时会不会把上一个人的数据传进新账号。
+- **误进训练页马上切走，也会记一条历史**：历史宁可多记，不能少记。历史目前没有界面。
+- **两部手机几乎同时上传**：没加“比较后再写”的保护。单用户场景基本碰不到，而且结束的训练都在只追加的历史里。
+- **多标签页覆盖**（见下面 2026-10-19 那条）还在。现在 `visibilitychange` 会触发同步，但不会重新读 localStorage。
+- 测试账号 `ericli6897+showup-test@gmail.com` 留在 Supabase 里，可以在后台 Authentication → Users 删掉，Agent 不删。
+
+### 2026-10-19：删了主屏幕图标，所有数据丢失（无法恢复）
+
+**经过**
+- 推送上面那次修复后，Agent 让用户“把主屏幕上的 App 彻底划掉再重新打开”。本意是在多任务界面把 App 上滑关掉。
+- 用户理解成删除图标、再从 Safari 书签重新添加到主屏幕。新图标里是空的。
+- Safari 里打开同一个网址也是空的。也没有训练截图可以用来补录。数据无法恢复。
+
+**原因**
+- iOS 主屏幕 Web App 的存储和 Safari 隔离，每个图标各有一份（WebKit bug 181849）。数据只在旧图标里，旧图标一删就再也打不开了。
+- 新代码没有删数据：这次的改动里没有任何清空存储的代码，自动保存每次也只写一个部位。
+
+**规则**
+- 见上面「调试前必须知道的事」：不让用户删图标，不发部署专属网址。
+- 让用户在手机上做任何操作前，先想清楚这个操作会不会碰到存储。拿不准就先问。
+- 待做：备份功能（导出 / 导入）。在这之前，用户的数据只有手机上这一份。
 
 ### 2026-10-19：忘了结束训练 / 数据回到上上次
 
