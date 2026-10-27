@@ -165,6 +165,12 @@ class App {
 
   addSet(exIdx) { this.$(`#exercise-card-${exIdx} .btn-add-set`).click(); }
 
+  // ⋯ → 删除动作; the confirm is answered by phone.confirmAnswer.
+  deleteExercise(exIdx) {
+    this.$(`#exercise-card-${exIdx} .exercise-menu-btn`).click();
+    this.$('#exercise-menu-box .menu-item-danger').click();
+  }
+
   async endWorkout() {
     this.$('.btn-end-workout').click();
     this.$('.confirm-ok').click();

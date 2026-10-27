@@ -274,6 +274,15 @@ test('sets with nothing from last time show their reps: a new exercise, a set ad
   assert.deepEqual({ ...today, leftAtZero: app.reps(1) }, { newExercise: [0, 0, 0], addedSet: 12, leftAtZero: [0, 0, 0] });
 });
 
+test('an exercise deleted and added back by the same name hides last time\'s reps again', async () => {
+  const app = await benchPressAgain();
+  app.deleteExercise(0);
+
+  app.addExercise('平板卧推', 4);
+
+  assert.deepEqual(app.reps(0), [null, null, null, null]);
+});
+
 test('a workout already running when this update arrives shows its reps as before', async () => {
   phone = new Phone();
   benchPressOnDisk({ routineKey: 'chest', startedAt: phone.now - 10 * MINUTE, currentSetCursors: { 0: 0 }, restingState: null });

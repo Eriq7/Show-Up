@@ -4,7 +4,7 @@
 
 ## 调试前必须知道的事
 
-- **单文件应用**：所有逻辑都在 `index.html` 的 `<script>` 里，没有构建步骤。`plan.md` 是最初的产品设计。
+- **单文件应用**：所有逻辑都在 `index.html` 的 `<script>` 里，没有构建步骤。最初的产品设计稿 `plan.md` 已于 2026-10-27 删除，因为很多地方已经跟现状对不上（比如 Edit 按钮、深色主题、不做云同步）。要看原文用 `git show 2a05f23:plan.md`。
 - **部署**：GitHub `Eriq7/Show-Up`，推到 `main` 会由 Vercel 自动部署到生产环境。推送前先问用户。
 - **使用方式**：用户在 iPhone 上用，大概率是「添加到主屏幕」的 Web App（有 `manifest.webmanifest` 和 `apple-touch-icon`，没跟用户确认过）。
 - **数据在两处**：App 实际用的是手机 localStorage 里的 `showup:state`。登录后会同步到 Supabase（见下面「云端」），没登录就只在手机上。Agent 能用 `supabase db query --linked` 查云端数据，但查不到没登录的手机。
@@ -127,8 +127,8 @@ cd tests && npm install && npm test   # 约 2 秒
 - `showup:state` 的模板和云端历史格式都没变，不需要迁移。
 
 **验证**
-- 测试加了 14 条，共 30 条（`session.test.mjs` 13 条，`sync.test.mjs` 1 条），连跑 5 遍没有随机失败。
-- 测试工具新加了 `App.reps(exIdx)`（蒙着的组返回 `null`）和 `App.addSet(exIdx)`。
+- 测试加了 15 条，共 31 条（`session.test.mjs` 14 条，`sync.test.mjs` 1 条），连跑 5 遍没有随机失败。其中"删掉动作再按同名加回来也会蒙上"是上线后补的。
+- 测试工具新加了 `App.reps(exIdx)`（蒙着的组返回 `null`）、`App.addSet(exIdx)` 和 `App.deleteExercise(exIdx)`。
 - 每条都临时改坏对应的代码跑过，确认会失败。其中几条一写就通过，是因为规则在前一条已经实现，就专门改坏规则本身来验证：
   - 把"次数多了"改成"次数变了"。
   - 把 `>=` 改成 `>`。
@@ -136,6 +136,7 @@ cd tests && npm install && npm test   # 约 2 秒
   - 新加的组照抄上一组的全部字段。
   - 次数是 0 的组也写 `prev`。
   - 续上训练时补写 `prev`。
+  - 按同名加回动作时不写 `prev`。
 - agent-browser 实测（390×844）：
   - 开练时次数全部蒙着；点还没轮到的第 3 组打不开。
   - 做完第 1 组点开，框里是 12；打 `13` 还没收键盘，其余组就已经打开了。
@@ -144,7 +145,6 @@ cd tests && npm install && npm test   # 约 2 秒
 
 **没做 / 待确认**
 - **iPhone 实测**：毛玻璃效果、点一下弹键盘、进步后其余组自动打开。
-- **删掉动作再按同名加回来**时，也会从模板带上 `prev`（`confirmAddExercise()`），这条路径没有测试。
 - 打错一个数（比如想打 11 打成了 13）会马上判定为进步并全部打开，改回去也不会再蒙上。这是"打开了就不再蒙上"的代价，用户知情。
 - agent-browser 的坑：「开始休息」会整页重画，之前 `snapshot` 拿到的 `@eN` 会失效，点它不会报错，但也没有任何反应。点完要重新 `snapshot`。另外点部位按钮后页面要等 `hashchange` 才重画，马上用 `eval` 查 DOM 会查到旧页面。
 
