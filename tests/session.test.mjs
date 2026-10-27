@@ -308,3 +308,15 @@ test('English chosen on the home page stays after the app is closed, and the wor
       action: app.row(0, 0).querySelector('.btn-action').textContent, status: app.syncStatus },
     { homeButton: '中文', title: 'Chest', sets: '2 sets', action: 'Rest', status: 'Not logged in: data stays on this phone' });
 });
+
+test('a phone not set to Chinese opens in English, until 中文 is chosen on the home page', async () => {
+  phone = new Phone();
+  phone.language = 'en-CA';
+  const app = await phone.launch();
+  const firstOpen = app.$('#btn-lang').textContent;
+
+  app.switchLanguage();
+  const reopened = await phone.launch();
+
+  assert.deepEqual({ firstOpen, afterChoosing: reopened.$('#btn-lang').textContent }, { firstOpen: '中文', afterChoosing: 'English' });
+});

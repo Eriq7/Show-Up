@@ -20,6 +20,7 @@ export class Phone {
   app = null;
   dialogs = [];
   confirmAnswer = true;
+  language = 'zh-CN'; // the phone's system language
 
   // Pass the same cloud to a second Phone to model a new phone (or a re-added icon) on the same account.
   constructor(cloud = new Cloud()) { this.cloud = cloud; }
@@ -53,6 +54,7 @@ export class Phone {
       pretendToBeVisual: true,
       beforeParse(window) {
         window.Date.now = () => phone.now;
+        Object.defineProperty(window.navigator, 'language', { get: () => phone.language });
         window.showUpCloud = phone.cloud.connect(window);
         for (const [k, v] of Object.entries(phone.disk)) window.localStorage.setItem(k, v);
         window.confirm = msg => { phone.dialogs.push(msg); return phone.confirmAnswer; };

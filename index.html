@@ -1029,8 +1029,12 @@ const STRINGS = {
   },
 };
 
-let lang = 'zh';
-try { if (localStorage.getItem(LANG_KEY) === 'en') lang = 'en'; } catch(e) {}
+// Until the 中文 / English button is tapped, follow the phone: Chinese phones get Chinese, every other phone English.
+let lang = /^zh/i.test(navigator.language || '') ? 'zh' : 'en';
+try {
+  const saved = localStorage.getItem(LANG_KEY);
+  if (saved === 'zh' || saved === 'en') lang = saved;
+} catch(e) {}
 
 function t(key, ...args) {
   const s = STRINGS[lang][key];
