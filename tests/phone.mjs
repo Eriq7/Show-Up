@@ -113,11 +113,14 @@ class App {
     await this.enterCode(this.phone.cloud.lastCode(email));
   }
 
-  // '胸' | '肩' | '背' — taps the matching dragon head on the home page.
+  // '胸' | '肩' | '背' ('Chest' | 'Shoulders' | 'Back' in English) — taps the matching dragon head on the home page.
   async openRoutine(name) {
-    this.$(`button[aria-label="${name}训练"]`).click();
+    this.$(`button[aria-label="${name}训练"], button[aria-label="${name} workout"]`).click();
     await tick();
   }
+
+  // The 中文 / English button under the dragons.
+  switchLanguage() { this.$('#btn-lang').click(); }
 
   async goHome() {
     this.$('#btn-back').click();

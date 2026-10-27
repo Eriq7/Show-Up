@@ -292,3 +292,19 @@ test('a workout already running when this update arrives shows its reps as befor
 
   assert.deepEqual(app.reps(0), [12, 12, 12, 12]);
 });
+
+test('English chosen on the home page stays after the app is closed, and the workout reads in English', async () => {
+  phone = new Phone();
+  await phone.launch();
+  phone.app.switchLanguage();
+
+  const app = await phone.launch();
+  const homeButton = app.$('#btn-lang').textContent;
+  await app.openRoutine('Chest');
+  app.addExercise('Bench press', 2);
+
+  assert.deepEqual(
+    { homeButton, title: app.$('#workout-title').textContent, sets: app.$('.exercise-sets-count').textContent,
+      action: app.row(0, 0).querySelector('.btn-action').textContent, status: app.syncStatus },
+    { homeButton: '中文', title: 'Chest', sets: '2 sets', action: 'Rest', status: 'Not logged in: data stays on this phone' });
+});
