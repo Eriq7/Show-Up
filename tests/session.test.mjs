@@ -129,3 +129,157 @@ test('a number still being typed when the next button is tapped is kept', async 
 
   assert.deepEqual(app.weights(0), [70, 0, 0]);
 });
+
+// 平板卧推 4 sets of 60 lbs × 12, as saved on the phone's disk.
+function benchPressOnDisk(activeSession = null) {
+  const set = { weight: 60, reps: 12, restSeconds: 90 };
+  const exercises = [{ name: '平板卧推', note: '', sets: [set, set, set, { ...set, restSeconds: null }] }];
+  phone.disk['showup:state'] = JSON.stringify({
+    routines: {
+      chest: { displayName: '胸', lastTrainedAt: phone.now - 3 * 24 * HOUR, exercises },
+      shoulders: { displayName: '肩', lastTrainedAt: null, exercises: [] },
+      back: { displayName: '背', lastTrainedAt: null, exercises: [] }
+    },
+    activeSession: activeSession && { ...activeSession, exercises }
+  });
+}
+
+// Last chest workout was 平板卧推 4 sets of 60 lbs × 12; chest is opened again for a new workout.
+async function benchPressAgain() {
+  phone = new Phone();
+  benchPressOnDisk();
+  const app = await phone.launch();
+  await app.openRoutine('胸');
+  return app;
+}
+
+test('reps from last time are hidden behind glass when an exercise is trained again', async () => {
+  const app = await benchPressAgain();
+
+  const repsText = [0, 1, 2, 3].map(i => app.row(0, i).children[2].textContent).join(' ');
+
+  assert.deepEqual({ reps: app.reps(0), shows12: repsText.includes('12') }, { reps: [null, null, null, null], shows12: false });
+});
+
+test('tapping the reps of a finished set opens the glass with last time\'s number ready to edit', async () => {
+  const app = await benchPressAgain();
+  app.tapAction(0, 0); // 开始休息: set 1 done
+
+  const inp = app.tapCell(0, 0, 'reps');
+
+  assert.equal(inp.value, '12');
+});
+
+test('one set with more reps than last time opens the glass on the rest of that exercise', async () => {
+  const app = await benchPressAgain();
+  app.tapAction(0, 0);
+
+  app.editCell(0, 0, 'reps', 13);
+
+  assert.deepEqual(app.reps(0), [13, 12, 12, 12]);
+});
+
+test('a set with fewer reps than last time leaves the rest of the exercise behind glass', async () => {
+  const app = await benchPressAgain();
+  app.tapAction(0, 0);
+
+  app.editCell(0, 0, 'reps', 11);
+
+  assert.deepEqual(app.reps(0), [11, null, null, null]);
+});
+
+test('the glass on a set not reached yet does not open when tapped', async () => {
+  const app = await benchPressAgain();
+
+  const focused = app.tapCell(0, 2, 'reps');
+
+  assert.deepEqual({ reps: app.reps(0)[2], keyboard: focused.tagName }, { reps: null, keyboard: 'BODY' });
+});
+
+test('more weight with the same reps as last time counts as progress, even without retyping the reps', async () => {
+  const app = await benchPressAgain();
+  app.editCell(0, 0, 'weight', 65);
+  app.tapAction(0, 0);
+
+  app.tapCell(0, 0, 'reps'); // 12 is already right, nothing to type
+
+  assert.deepEqual(app.reps(0), [12, 12, 12, 12]);
+});
+
+test('less weight never counts as progress, however many reps', async () => {
+  const app = await benchPressAgain();
+  app.editCell(0, 0, 'weight', 55);
+  app.tapAction(0, 0);
+
+  app.editCell(0, 0, 'reps', 14);
+
+  assert.deepEqual(app.reps(0), [14, null, null, null]);
+});
+
+test('glass that opened stays open after the reps are changed back to last time\'s', async () => {
+  const app = await benchPressAgain();
+  app.tapAction(0, 0);
+  app.editCell(0, 0, 'reps', 13);
+
+  app.editCell(0, 0, 'reps', 12);
+  app.tapAction(0, 0); // 结束休息 redraws the page
+
+  assert.deepEqual(app.reps(0), [12, 12, 12, 12]);
+});
+
+test('the rest of the glass opens while the keyboard is still up, without closing it', async () => {
+  const app = await benchPressAgain();
+  app.tapAction(0, 0);
+
+  const inp = app.tapCell(0, 0, 'reps');
+  app.type('13');
+
+  assert.deepEqual({ reps: app.reps(0), stillTyping: app.doc.activeElement === inp }, { reps: [13, 12, 12, 12], stillTyping: true });
+});
+
+test('which glass was opened survives the app being killed mid-workout', async () => {
+  let app = await benchPressAgain();
+  app.tapAction(0, 0);
+  app.editCell(0, 0, 'reps', 11);
+
+  app = await phone.launch();
+  await app.openRoutine('胸');
+
+  assert.deepEqual(app.reps(0), [11, null, null, null]);
+});
+
+test('the next workout hides everything again, with this time\'s reps behind the glass', async () => {
+  const app = await benchPressAgain();
+  app.tapAction(0, 0);
+  app.editCell(0, 0, 'reps', 13);
+  await app.endWorkout();
+
+  await app.openRoutine('胸');
+  const hidden = app.reps(0);
+  app.tapAction(0, 0);
+  const inp = app.tapCell(0, 0, 'reps');
+
+  assert.deepEqual({ hidden, behindGlass: inp.value }, { hidden: [null, null, null, null], behindGlass: '13' });
+});
+
+test('sets with nothing from last time show their reps: a new exercise, a set added today, reps left at 0', async () => {
+  const app = await benchPressAgain();
+
+  app.addExercise('飞鸟', 3);
+  app.addSet(0);
+  const today = { newExercise: app.reps(1), addedSet: app.reps(0)[4] };
+  await app.endWorkout();
+  await app.openRoutine('胸'); // 飞鸟's reps were never filled in
+
+  assert.deepEqual({ ...today, leftAtZero: app.reps(1) }, { newExercise: [0, 0, 0], addedSet: 12, leftAtZero: [0, 0, 0] });
+});
+
+test('a workout already running when this update arrives shows its reps as before', async () => {
+  phone = new Phone();
+  benchPressOnDisk({ routineKey: 'chest', startedAt: phone.now - 10 * MINUTE, currentSetCursors: { 0: 0 }, restingState: null });
+  const app = await phone.launch();
+
+  await app.openRoutine('胸');
+
+  assert.deepEqual(app.reps(0), [12, 12, 12, 12]);
+});

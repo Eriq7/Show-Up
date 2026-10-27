@@ -242,6 +242,15 @@
   }
   .cell-readonly:active { background: var(--bg3); }
 
+  /* Reps behind frosted glass: blurred placeholder digits; the current row is already --bg3, so a translucent tint */
+  .cell-masked,
+  .cell-masked:active {
+    color: transparent;
+    text-shadow: 0 0 8px var(--muted);
+    background: rgba(139, 111, 79, 0.14);
+    border-radius: 6px;
+  }
+
   /* Active editing input */
   .cell-edit-input {
     background: var(--bg2);
@@ -915,6 +924,18 @@ function endStaleSession() {
   if (state.activeSession && isStale(state.activeSession)) finishSession();
 }
 
+// Last time's weight and reps, kept only while the workout runs to tell whether a set improved.
+// Sets without last-time reps get none, so they're never hidden.
+function withPrev(set) {
+  if (set.reps > 0) set.prev = { weight: set.weight, reps: set.reps };
+  return set;
+}
+
+// Reps stay behind frosted glass until the set is revealed, so last time's number isn't a ceiling.
+function isMasked(set) {
+  return !!set.prev && !set.revealed;
+}
+
 // Returns false if the user chose to keep the other routine's workout going.
 function enterRoutine(routineKey) {
   const ses = state.activeSession;
@@ -934,7 +955,7 @@ function enterRoutine(routineKey) {
   const sessionExercises = templateExercises.map(ex => ({
     name: ex.name,
     note: ex.note || '',
-    sets: ex.sets.map(s => ({
+    sets: ex.sets.map(s => withPrev({
       weight: s.weight || 0,
       reps: s.reps || 0,
       restSeconds: s.restSeconds ?? null
@@ -1018,6 +1039,17 @@ function startCellEdit(spanEl, exIdx, setIdx, field) {
       ses.restingState.setIndex === setIdx) return;
 
   const set = ses.exercises[exIdx].sets[setIdx];
+  if (field === 'reps' && isMasked(set)) {
+    // Only the current or a finished set opens, so a stray tap can't peek ahead.
+    if (setIdx > (ses.currentSetCursors[exIdx] ?? 0)) return;
+    // Opening the glass sticks, so it's saved before `original`: Escape must not mask it again.
+    set.revealed = true;
+    spanEl.classList.remove('cell-masked');
+    spanEl.textContent = set.reps || 0;
+    // Weight raised beforehand and last time's reps done: that's already progress.
+    revealIfImproved(ses.exercises[exIdx], exIdx);
+    save();
+  }
   const original = { ...set };
   const inp = document.createElement('input');
   inp.type = 'number';
@@ -1027,7 +1059,8 @@ function startCellEdit(spanEl, exIdx, setIdx, field) {
     inp.style.width = '56px';
     inp.value = set.restSeconds ?? 0;
   } else {
-    inp.value = parseFloat(spanEl.textContent) || 0;
+    // From the set, not the cell: a masked cell only shows placeholder digits.
+    inp.value = set[field] || 0;
   }
   // Save every keystroke: on iOS tapping a button doesn't blur the input,
   // so the next re-render (or ending the workout) can drop it without a blur.
@@ -1047,7 +1080,32 @@ function setCellValue(set, field, value) {
   if (field === 'weight') set.weight = numVal;
   else if (field === 'reps') set.reps = Math.round(numVal);
   else if (field === 'rest') set.restSeconds = Math.round(numVal);
+  const ses = state.activeSession;
+  // By reference, not index: deleting a set shifts the indexes.
+  // No session when the input blurs late, after the workout already ended.
+  const exIdx = ses ? ses.exercises.findIndex(e => e.sets.includes(set)) : -1;
+  if (exIdx >= 0) revealIfImproved(ses.exercises[exIdx], exIdx);
   save();
+}
+
+function isImproved(set) {
+  const { prev } = set;
+  return !!prev && ((set.weight === prev.weight && set.reps > prev.reps) ||
+                    (set.weight > prev.weight && set.reps >= prev.reps));
+}
+
+// One opened set that beat last time is enough for the day: open the glass on the rest of the exercise.
+// Cells are updated in place because re-rendering would drop the input being typed in, and the keyboard with it.
+// Caller saves.
+function revealIfImproved(ex, exIdx) {
+  if (!ex.sets.some(s => s.revealed && isImproved(s))) return;
+  ex.sets.forEach(s => { if (s.prev) s.revealed = true; });
+  const card = document.getElementById(`exercise-card-${exIdx}`);
+  if (!card) return;
+  card.querySelectorAll('.cell-masked').forEach(span => {
+    span.textContent = ex.sets[span.dataset.setIdx].reps || 0;
+    span.classList.remove('cell-masked');
+  });
 }
 
 function commitCellEdit(inp, spanEl, set, field) {
@@ -1151,9 +1209,9 @@ function buildExerciseCard(ex, exIdx, cursor, ses) {
     tr.appendChild(tdNum);
 
     // Weight col
-    tr.appendChild(buildNumCell(set.weight, exIdx, setIdx, 'weight'));
+    tr.appendChild(buildNumCell(set, exIdx, setIdx, 'weight'));
     // Reps col
-    tr.appendChild(buildNumCell(set.reps, exIdx, setIdx, 'reps'));
+    tr.appendChild(buildNumCell(set, exIdx, setIdx, 'reps'));
 
     // Rest col
     tr.appendChild(buildRestCell(set, exIdx, setIdx, cursor, isLastSet(setIdx), isResting, ses));
@@ -1198,11 +1256,18 @@ function buildNote(ex) {
   return wrap;
 }
 
-function buildNumCell(value, exIdx, setIdx, field) {
+function buildNumCell(set, exIdx, setIdx, field) {
   const td = document.createElement('td');
   const span = document.createElement('span');
   span.className = 'cell-readonly';
-  span.textContent = value || 0;
+  if (field === 'reps' && isMasked(set)) {
+    // Placeholder digits under the glass: the real number isn't on the page at all.
+    span.className += ' cell-masked';
+    span.textContent = '88';
+    span.dataset.setIdx = setIdx;
+  } else {
+    span.textContent = set[field] || 0;
+  }
   span.onclick = (e) => startCellEdit(e.currentTarget, exIdx, setIdx, field);
   td.appendChild(span);
   return td;
@@ -1408,7 +1473,7 @@ function confirmAddExercise() {
   const templateEx = state.routines[ses.routineKey].exercises.find(e => e.name === name);
   const sets = Array.from({ length: setsCount }, (_, i) => {
     if (templateEx && templateEx.sets[i]) {
-      return { weight: templateEx.sets[i].weight || 0, reps: templateEx.sets[i].reps || 0, restSeconds: null };
+      return withPrev({ weight: templateEx.sets[i].weight || 0, reps: templateEx.sets[i].reps || 0, restSeconds: null });
     }
     return { weight: 0, reps: 0, restSeconds: null };
   });
@@ -1460,14 +1525,16 @@ function finishSession() {
   const ses = state.activeSession;
   if (ses) {
     const routineKey = ses.routineKey;
-    state.routines[routineKey].exercises = JSON.parse(JSON.stringify(ses.exercises));
+    // The glass is only for this workout: last time's numbers stay out of the template and the history.
+    const exercises = ses.exercises.map(ex => ({ ...ex, sets: ex.sets.map(({ prev, revealed, ...s }) => s) }));
+    state.routines[routineKey].exercises = JSON.parse(JSON.stringify(exercises));
     state.routines[routineKey].lastTrainedAt = Date.now();
     queueWorkout({
       clientId: newId(),
       routineKey,
       startedAt: ses.startedAt,
       endedAt: Date.now(),
-      exercises: JSON.parse(JSON.stringify(ses.exercises))
+      exercises: JSON.parse(JSON.stringify(exercises))
     });
   }
   state.activeSession = null;

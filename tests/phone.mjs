@@ -163,6 +163,8 @@ class App {
     this.row(exIdx, setIdx).querySelector('.btn-action').click();
   }
 
+  addSet(exIdx) { this.$(`#exercise-card-${exIdx} .btn-add-set`).click(); }
+
   async endWorkout() {
     this.$('.btn-end-workout').click();
     this.$('.confirm-ok').click();
@@ -183,5 +185,17 @@ class App {
     const card = this.$(`#exercise-card-${exIdx}`);
     if (!card) return [];
     return [...card.querySelectorAll('tbody tr')].map(tr => Number(tr.children[1].textContent));
+  }
+
+  // null for a set whose reps are still behind the frosted glass; a cell being edited reads its input.
+  reps(exIdx) {
+    const card = this.$(`#exercise-card-${exIdx}`);
+    if (!card) return [];
+    return [...card.querySelectorAll('tbody tr')].map(tr => {
+      const cell = tr.children[2];
+      const inp = cell.querySelector('input');
+      if (inp) return Number(inp.value);
+      return cell.querySelector('.cell-masked') ? null : Number(cell.textContent);
+    });
   }
 }

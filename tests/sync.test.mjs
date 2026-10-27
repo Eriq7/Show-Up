@@ -131,3 +131,24 @@ test('signing up on a phone that already has workouts keeps them and puts them i
   assert.deepEqual({ onThisPhone, onAnotherPhone: other.weights(0) },
                    { onThisPhone: [60, 0, 0], onAnotherPhone: [60, 0, 0] });
 });
+
+test('hidden reps leave nothing extra in the cloud: sets there still have just weight, reps and rest', async () => {
+  const phone = newPhone();
+  const app = await phone.launch();
+  await app.register(EMAIL, PASSWORD);
+  await app.openRoutine('胸');
+  app.addExercise('平板卧推', 2);
+  app.editCell(0, 0, 'reps', 12);
+  await app.endWorkout();
+
+  await app.openRoutine('胸'); // set 1's 12 is behind glass now
+  app.tapAction(0, 0);
+  app.editCell(0, 0, 'reps', 13);
+  await app.endWorkout();
+
+  const fields = exercises => [...new Set(exercises.flatMap(ex => ex.sets.flatMap(Object.keys)))].sort();
+  assert.deepEqual(
+    { history: fields(phone.cloud.workouts(EMAIL).at(-1).exercises), template: fields(phone.cloud.state(EMAIL).routines.chest.exercises) },
+    { history: ['reps', 'restSeconds', 'weight'], template: ['reps', 'restSeconds', 'weight'] }
+  );
+});
