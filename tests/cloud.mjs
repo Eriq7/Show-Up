@@ -103,6 +103,7 @@ export class Cloud {
       pushState: (state, updatedAt) => cloud.request(() => {
         cloud.states[me()] = copy({ state, updatedAt });
       }),
+      pullWorkouts: () => cloud.request(() => copy(cloud.history.filter(w => w.userId === me()))),
       appendWorkout: workout => cloud.request(() => {
         const userId = me();
         if (cloud.history.some(w => w.userId === userId && w.clientId === workout.clientId)) return;

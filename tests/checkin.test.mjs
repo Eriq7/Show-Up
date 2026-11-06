@@ -328,3 +328,59 @@ test('records imported before signing in are not replaced by what is already in 
 
   assert.deepEqual(appB.heat('2026-10-05'), ['胸']);
 });
+
+// ───── looking back at a day ─────
+
+// A chest workout on the Phone's today: 卧推 3 sets at 135×10 with a note, held for `minutes`.
+async function chestWorkout(app, phone, minutes = 30) {
+  await app.openRoutine('胸');
+  app.addExercise('卧推', 3);
+  app.editCell(0, 0, 'weight', 135);
+  app.editCell(0, 0, 'reps', 10);
+  app.writeNote(0, '腰贴紧座椅');
+  phone.advance(minutes * 60 * 1000);
+  await app.endWorkout();
+}
+
+test('tapping a day lists what was trained: names, weights, reps and notes', async () => {
+  const phone = newPhone();
+  const app = await phone.launch();
+  await chestWorkout(app, phone);
+
+  assert.deepEqual(await app.dayTraining(TODAY), [
+    { part: '胸', exercises: [{ name: '卧推', sets: '135×10  0×0  0×0', note: '腰贴紧座椅' }] },
+  ]);
+});
+
+test('the training on a day comes back on a new phone after signing in', async () => {
+  const phone = newPhone();
+  const app = await phone.launch();
+  await app.register(EMAIL, PASSWORD);
+  await chestWorkout(app, phone);
+
+  const fresh = await newPhone(phone.cloud).launch();
+  await fresh.signIn(EMAIL, PASSWORD);
+
+  assert.deepEqual(await fresh.dayTraining(TODAY), [
+    { part: '胸', exercises: [{ name: '卧推', sets: '135×10  0×0  0×0', note: '腰贴紧座椅' }] },
+  ]);
+});
+
+test('a workout opened and closed within a minute is not listed', async () => {
+  const phone = newPhone();
+  const app = await phone.launch();
+  await chestWorkout(app, phone, 1);
+
+  assert.deepEqual(await app.dayTraining(TODAY), []);
+});
+
+test('parts saved without an order show chest, shoulders, back, as the cloud stores keys sorted', async () => {
+  const phone = newPhone();
+  const routine = displayName => ({ displayName, lastTrainedAt: null, exercises: [] });
+  phone.disk['showup:state'] = JSON.stringify({
+    routines: { back: routine('背'), chest: routine('胸'), shoulders: routine('肩') },
+    activeSession: null,
+  });
+
+  assert.deepEqual((await phone.launch()).partCards, ['胸', '肩', '背']);
+});

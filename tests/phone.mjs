@@ -152,6 +152,23 @@ class App {
       .querySelector('.m.today.on'));
   }
 
+  // Opens a day and reads the training listed there: [{ part, exercises: [{ name, sets, note }] }].
+  async dayTraining(iso) {
+    this.$(`#heat [data-iso="${iso}"]`).click();
+    await this.phone.settle();
+    const text = el => el.textContent;
+    const works = [...this.doc.querySelectorAll('#day-history .h-work')].map(w => ({
+      part: text(w.querySelector('.h-title')).replace(/\d\d:\d\d$/, ''),
+      exercises: [...w.querySelectorAll('.h-ex')].map(e => ({
+        name: text(e.querySelector('.h-name')),
+        sets: text(e.querySelector('.h-sets')),
+        note: e.querySelector('.h-note') ? text(e.querySelector('.h-note')) : '',
+      })),
+    }));
+    this.$('#day-done').click();
+    return works;
+  }
+
   addPart(name) {
     this.$('#btn-add-part').click();
     this.$('#part-name').value = name;

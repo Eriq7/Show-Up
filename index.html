@@ -297,6 +297,15 @@
   .modal-confirm:active, .confirm-ok:active { transform: scale(.98); }
   .modal-confirm:disabled { opacity: 0.4; }
 
+  .history { margin-top: 6px; text-align: left; }
+  .h-work { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .h-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; }
+  .h-time { font-size: 13px; font-weight: 500; color: var(--ink2); }
+  .h-ex { margin-top: 10px; }
+  .h-name { font-weight: 600; overflow-wrap: anywhere; }
+  .h-sets { margin-top: 2px; font-size: 13px; color: var(--ink2); font-variant-numeric: tabular-nums; }
+  .h-note { margin-top: 4px; font-size: 13px; line-height: 1.5; color: var(--ink2); white-space: pre-wrap; overflow-wrap: anywhere; }
+
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip {
     display: inline-flex; align-items: center; gap: 7px;
@@ -460,6 +469,7 @@
     <div class="modal-title" id="day-title"></div>
     <div class="sheet-hint" id="day-hint"></div>
     <div class="chips" id="day-chips"></div>
+    <div class="history" id="day-history"></div>
     <div class="modal-btns">
       <button class="modal-confirm" id="day-done" onclick="closeDay()" data-i18n="done">完成</button>
     </div>
@@ -570,7 +580,9 @@ function withDefaults(parsed) {
   s.logs = parsed.logs || {};
   const keys = Object.keys(s.routines);
   const saved = (parsed.partOrder || []).filter(k => s.routines[k]);
-  s.partOrder = [...saved, ...keys.filter(k => !saved.includes(k))];
+  // Without a saved order (jsonb sorts keys by length, then alphabet): the starting parts in their own order, then the rest.
+  const rest = keys.filter(k => !saved.includes(k));
+  s.partOrder = [...saved, ...BUILTIN_PARTS.filter(k => rest.includes(k)), ...rest.filter(k => !BUILTIN_PARTS.includes(k))];
   s.partOrder.forEach(k => {
     const r = s.routines[k];
     if (r.color) return;
@@ -635,6 +647,7 @@ const STRINGS = {
     monthLabel: m => `${m + 1}月`,
     dayLabel: (m, d) => `${m + 1} 月 ${d} 日`,
     todayDate: label => `今天，${label}`,
+    dayHistory: '这天的训练',
     dayOn: '点部位可以补上或去掉。',
     dayOff: '这天没有打卡，点部位可以补上。',
     exercisePart: '这个动作练哪个部位',
@@ -719,6 +732,7 @@ const STRINGS = {
     monthLabel: m => ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m],
     dayLabel: (m, d) => `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m]} ${d}`,
     todayDate: label => `Today, ${label}`,
+    dayHistory: 'Training that day',
     dayOn: 'Tap a part to add or remove it.',
     dayOff: 'Nothing logged this day. Tap a part to add it.',
     exercisePart: 'Which part does it train?',
@@ -1051,6 +1065,7 @@ function openDay(iso) {
   dayIso = iso;
   drawDay();
   document.getElementById('day-overlay').classList.add('open');
+  loadHistory();
 }
 
 function closeDay() {
@@ -1073,6 +1088,50 @@ function drawDay() {
     chip.innerHTML = `${keyHtml(partColor(id))}${esc(routineName(id))}`;
     chip.onclick = () => toggleDayPart(id);
     box.appendChild(chip);
+  });
+  drawHistory();
+}
+
+// ───── what was trained on a day, from the workout history ─────
+// Every ended workout is kept whole (names, weights, reps, notes) in the cloud and, until it's uploaded, in `pending`.
+// Workouts under 5 minutes are left out: opening a part by mistake saves one too.
+const MIN_WORKOUT_MS = 5 * 60 * 1000;
+let cloudWorkouts = [];
+
+async function loadHistory() {
+  if (!signedIn) return;
+  try { cloudWorkouts = await cloud.pullWorkouts(); } catch(e) { return; }
+  if (dayIso) drawHistory();
+}
+
+function dayWorkouts(iso) {
+  const all = [...cloudWorkouts, ...pending.filter(w => !cloudWorkouts.some(c => c.clientId === w.clientId))];
+  return all
+    .filter(w => w.exercises.length && w.endedAt - w.startedAt >= MIN_WORKOUT_MS && isoOf(new Date(w.startedAt)) === iso)
+    .sort((a, b) => a.startedAt - b.startedAt);
+}
+
+function drawHistory() {
+  const box = document.getElementById('day-history');
+  const works = dayWorkouts(dayIso);
+  box.innerHTML = '';
+  if (!works.length) return;
+  const head = document.createElement('div');
+  head.className = 'modal-label';
+  head.style.marginTop = '18px';
+  head.textContent = t('dayHistory');
+  box.appendChild(head);
+  works.forEach(w => {
+    const time = new Date(w.startedAt);
+    const el = document.createElement('div');
+    el.className = 'h-work';
+    el.innerHTML = `<div class="h-title">${keyHtml(partColor(w.routineKey))}${esc(routineName(w.routineKey))}` +
+      `<span class="h-time">${pad2(time.getHours())}:${pad2(time.getMinutes())}</span></div>` +
+      w.exercises.map(ex =>
+        `<div class="h-ex"><div class="h-name">${esc(ex.name)}</div>` +
+        `<div class="h-sets">${ex.sets.map(x => `${x.weight || 0}×${x.reps || 0}`).join('  ')}</div>` +
+        (ex.note ? `<div class="h-note">${esc(ex.note)}</div>` : '') + `</div>`).join('');
+    box.appendChild(el);
   });
 }
 
@@ -2024,6 +2083,13 @@ function supabaseCloud() {
     async pullState() {
       const row = await run(c => c.from('user_state').select('state, updated_at').maybeSingle());
       return row && { state: row.state, updatedAt: Date.parse(row.updated_at) };
+    },
+    async pullWorkouts() {
+      const rows = await run(c => c.from('workouts').select('client_id, routine_key, started_at, ended_at, exercises').order('started_at'));
+      return rows.map(r => ({
+        clientId: r.client_id, routineKey: r.routine_key,
+        startedAt: Date.parse(r.started_at), endedAt: Date.parse(r.ended_at), exercises: r.exercises
+      }));
     },
     pushState: (state, updatedAt) =>
       run(c => c.from('user_state').upsert({ state, updated_at: iso(updatedAt) })),
