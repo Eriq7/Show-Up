@@ -5,6 +5,9 @@ import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import { Cloud } from './cloud.mjs';
 
+// Check-ins are dated by the phone's local calendar. Pin the zone so a test's "today" is the same on every machine.
+process.env.TZ = 'UTC';
+
 const HTML = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 
 export const MINUTE = 60 * 1000;
@@ -60,6 +63,7 @@ export class Phone {
         window.confirm = msg => { phone.dialogs.push(msg); return phone.confirmAnswer; };
         window.alert = msg => { phone.dialogs.push(msg); };
         window.HTMLElement.prototype.scrollIntoView = () => {};
+        window.scrollTo = () => {};
       },
     });
     await new Promise(r => dom.window.addEventListener('load', r));
@@ -115,10 +119,70 @@ class App {
     await this.enterCode(this.phone.cloud.lastCode(email));
   }
 
-  // '胸' | '肩' | '背' ('Chest' | 'Shoulders' | 'Back' in English) — taps the matching dragon head on the home page.
+  // A part's name as on its card ('胸', 'Chest', or one the user added) — taps that card on the home page.
   async openRoutine(name) {
     this.$(`button[aria-label="${name}训练"], button[aria-label="${name} workout"]`).click();
     await tick();
+  }
+
+  // Names of the part cards on the home page, in order.
+  get partCards() {
+    return [...this.doc.querySelectorAll('#parts .part')].map(b => b.querySelector('.part-name').textContent);
+  }
+
+  get toast() { return this.$('#toast').textContent; }
+
+  // Parts shown on a day of the heatmap ('YYYY-MM-DD'), in card order. [] for an unlit day.
+  heat(iso) {
+    const cell = this.$(`#heat [data-iso="${iso}"]`);
+    return cell.dataset.parts ? cell.dataset.parts.split('|') : [];
+  }
+
+  // How many of the last 14 days are lit on a part's card.
+  litDays(name) {
+    return [...this.doc.querySelectorAll('#parts .part')]
+      .find(b => b.querySelector('.part-name').textContent === name)
+      .querySelectorAll('.m.on').length;
+  }
+
+  // Whether today's little square on a part's card is lit.
+  litToday(name) {
+    return !!([...this.doc.querySelectorAll('#parts .part')]
+      .find(b => b.querySelector('.part-name').textContent === name)
+      .querySelector('.m.today.on'));
+  }
+
+  addPart(name) {
+    this.$('#btn-add-part').click();
+    this.$('#part-name').value = name;
+    this.$('#part-add-confirm').click();
+  }
+
+  // The colour of a part's key square on its card.
+  partColor(name) {
+    const card = [...this.doc.querySelectorAll('#parts .part')].find(b => b.querySelector('.part-name').textContent === name);
+    return card.querySelector('.key').dataset.color;
+  }
+
+  get partError() { return this.$('#part-error').textContent; }
+
+  // Taps a day, then a part in the sheet that opens, to add or remove that check-in by hand.
+  toggleDay(iso, name) {
+    this.$(`#heat [data-iso="${iso}"]`).click();
+    [...this.doc.querySelectorAll('#day-chips .chip')].find(c => c.textContent === name).click();
+    this.$('#day-done').click();
+  }
+
+  // Pastes into the import sheet and confirms. Returns what the sheet said before importing.
+  importOldData(text) {
+    this.$('#btn-import').click();
+    const box = this.$('#import-text');
+    box.value = text;
+    box.dispatchEvent(new this.window.Event('input', { bubbles: true }));
+    const said = this.$('#import-summary').textContent;
+    const btn = this.$('#import-confirm');
+    if (!btn.disabled) btn.click();
+    return said;
   }
 
   // The 中文 / English button under the dragons.
@@ -129,11 +193,25 @@ class App {
     await tick();
   }
 
-  addExercise(name, sets) {
+  // `part`: the part the exercise trains, when it isn't the one being trained.
+  addExercise(name, sets, part) {
     this.$('.btn-add-exercise').click();
     this.$('#modal-name').value = name;
     this.$('#modal-sets').value = String(sets);
+    if (part) [...this.doc.querySelectorAll('#modal-parts .chip')].find(c => c.textContent === part).click();
     this.$('.modal-confirm').click();
+  }
+
+  // Does the End workout button look ready (some exercise finished)?
+  get endReady() { return this.$('.btn-end-workout').classList.contains('ready'); }
+
+  // Works through the first `count` sets of an exercise: Rest then End rest, and Done on the last set.
+  completeSets(exIdx, count) {
+    const total = this.$(`#exercise-card-${exIdx}`).querySelectorAll('tbody tr').length;
+    for (let i = 0; i < count; i++) {
+      this.tapAction(exIdx, i);
+      if (i < total - 1) this.tapAction(exIdx, i);
+    }
   }
 
   row(exIdx, setIdx) {

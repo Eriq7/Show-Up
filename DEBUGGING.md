@@ -9,10 +9,16 @@
 - **使用方式**：用户在 iPhone 上用，大概率是「添加到主屏幕」的 Web App（有 `manifest.webmanifest` 和 `apple-touch-icon`，没跟用户确认过）。
 - **数据在两处**：App 实际用的是手机 localStorage 里的 `showup:state`。登录后会同步到 Supabase（见下面「云端」），没登录就只在手机上。Agent 能用 `supabase db query --linked` 查云端数据，但查不到没登录的手机。
 - **状态模型**：
-  - `state.routines.{chest,shoulders,back}.exercises`：下次训练的模板。每个动作是 `{ name, note, sets }`。`note` 是 2026-10-19 加的，之前存的数据没有这个字段，读的时候按空字符串处理（`ex.note || ''`）。
+  - `state.routines[部位id]`：一个部位一个。`chest`、`shoulders`、`back` 是第一次打开时自带的，其余部位的 id 是 `p` 加随机串。里面是 `{ displayName, color, lastTrainedAt, exercises }`。
+    - `exercises`：下次训练的模板。每个动作是 `{ name, note, sets, part? }`。`note` 是 2026-10-19 加的，之前存的数据没有这个字段，读的时候按空字符串处理（`ex.note || ''`）。`part` 是 2026-11-05 加的，可选：动作练的部位，没有就算所在卡片的部位，所以老动作不用迁移。
+    - `color`：这个部位的颜色。老数据没有，`withDefaults()` 补：三个自带部位固定，新的取调色板里第一个没人用的，七个用完是灰色。
+    - 只在第一次运行时补三个自带部位（`defaultState()`）。存下来的数据按原样读，不再补，所以以后删掉的部位不会复活。
+  - `state.partOrder`：首页部位显示顺序。`user_state` 是 jsonb，不保留 key 顺序，所以必须显式存。
+  - `state.logs[部位id]`：`['YYYY-MM-DD', ...]`，这个部位练过的日子，格式跟旧的健身打卡 App 一样。同一天可以出现两次（旧 App 点了两下），热力图显示时去重。
   - `state.activeSession`：进行中的那一场，**同一时间只有一场**。
     - 里面的组可能多两个字段：`prev`（上次的 `{ weight, reps }`，只用来判断有没有进步）和 `revealed`（这组次数格的毛玻璃已打开）。这两个字段只在训练进行中存在，`finishSession()` 写回模板和放进历史之前会去掉。见下面「次数蒙版」那条记录。
-  - `finishSession()`：把 `activeSession` 拷回对应部位的模板并清空，同时把这次训练放进“待上传”队列。结束训练、4 小时自动结束、切换部位都走它。
+  - `finishSession()`：把 `activeSession` 拷回对应部位的模板并清空，同时把这次训练放进“待上传”队列，并**自动打卡**：一个动作的组全部做完（`currentSetCursors[i] >= sets.length`），它的部位（`ex.part || routineKey`）在这场 `startedAt` 的本地日期亮。只做了一部分的不算。结束训练、4 小时自动结束、切换部位都走它，返回值是这次亮的部位 id。
+  - 手动补打卡：点热力图某一天，在弹出的面板里点部位加上或去掉。只用来补漏和纠错。
   - 每次改 `state` 后都要调 `save()`。它写 localStorage，并标记“有改动没上传”、触发同步。从云端拉下来的数据用 `writeState()` 写，不算改动。
   - `render()` 是路由入口，页面加载和 `hashchange` 时都会调。
 - **同步用的另外两个 key**（`showup:state` 的结构没变）：
@@ -21,7 +27,7 @@
 - **同步规则**（`syncOnce()`）：先补传 `pending`，再拉云端那份比较：
   - 云端没变：本地有改动就上传。
   - 云端变了，本地没改动或本地是空的：用云端的。
-  - 两边都改了：以 `updated_at` 新的为准，旧的那份存进 `state_backups`，不丢。
+  - 两边都改了：以 `updated_at` 新的为准，旧的那份存进 `state_backups`，不丢。**只有 `logs` 例外**：两边按“同一天取较多次数”合并（`mergeLogs()`），不走新的盖旧的。代价：一台手机上手动去掉的某天，如果另一台还有，冲突时会回来。
   - 什么时候同步：每次 `save()` 后、`online`、`pageshow`、切回前台（`visibilitychange`）、App 开着时每 30 秒。iOS 没有后台同步，App 关着时不会上传。
 - **不要随便改 `showup:state` 的结构**：用户的真实数据就存在这个格式里，要改就得写迁移。
 - **绝不能让用户删除或重新添加主屏幕图标，也不能让用户清 Safari 的网站数据。** iOS 上每个主屏幕图标有自己独立的存储，跟 Safari 不共用。图标删掉，那份数据就再也打不开了（2026-10-19 真的因此丢过一次数据，见下面的记录）。要让手机加载新版本，就说：“在多任务界面把 App 上滑关掉，再从同一个图标打开，不要删图标。”
@@ -51,11 +57,14 @@ cd tests && npm install && npm test   # 约 2 秒
   - 登录状态存在那个 App 的 localStorage 里，跟真 SDK 一样，所以 `kill()` / `launch()` 后还是登录状态，新 Phone 则没登录。
   - `phone.goOffline()` / `phone.goOnline()` 切换网络，`goOnline()` 会派发 `online` 事件。`cloud.lastCode(email)` 是发到这个邮箱的最新验证码。
   - `phone.settle()` 等 App 停止访问云端。`launch()`、`endWorkout()`、登录相关的方法里都已经调过了。
+- `tests/checkin.test.mjs`：自动打卡、部位、手动补打卡、颜色、导入旧 App 数据、两部手机的打卡合并。
+- `tests/phone.mjs` 开头把时区固定成 UTC：打卡按手机本地日期记，不固定的话“今天”在不同机器上会差一天。App 里算日期用 `new Date(Date.now())`，不用 `new Date()`，因为测试只改了 `Date.now`。
 - `tests/session.test.mjs`（训练流程）和 `tests/sync.test.mjs`（同步、登录）：测试只写在这一层，即“用户怎么操作 → 下次打开看到什么”。不要在测试里直接断言 localStorage 的内容。云端是系统边界，可以断言云端收到了什么，比如 `cloud.workouts(email)`。
 - 测试用 jsdom 加载真实的 `index.html`，不需要拆文件。jsdom 不会加载 CDN 上的 supabase-js，所以测试里只有假云端。
 
 ### 坑
 
+- **测“断网时两边都改了”要先 `await phone.settle()` 再 `goOnline()`**。`goOffline()` 只改假云端的开关，请求要等一个事件循环才检查它；不先 settle，改动的上传会在联网后才被检查，两部手机会抢着传，结果随机。
 - **jsdom 用 `setImmediate` 派发 `hashchange`**。等页面切换必须用 `setImmediate`。用 `setTimeout(0)` 会随机失败：实测 12 次里 6 次失败，因为在 Node 里两者谁先执行不固定。
 - **jsdom 里点按钮不会让输入框失焦**，移除正在聚焦的输入框也不会触发 `blur`。这一点跟 iOS 很像，正好拿来模拟 iOS。
 - **每个 JSDOM 实例的 localStorage 是独立的**，所以 `Phone.kill()` 会手动把数据拷出来，下次 `launch()` 时再写回去。
@@ -105,6 +114,33 @@ cd tests && npm install && npm test   # 约 2 秒
 ---
 
 ## 记录
+
+### 2026-11-05：并入旧的健身打卡 App（自动打卡 + 部位 + 深色界面）
+
+**为什么**
+- 用户有两个 App：Show Up 记训练，旧的健身打卡手动点格子。练完忘了点，而且练完本来就该算练过。方案见仓库里的 `健身打卡与Show Up的合并方案.md`（如果还在）和下面的决定。
+
+**做了什么**
+- 首页换成深色：近 6 个月热力图（一天多个部位按斜切等面积色带切）、部位卡片（颜色、上次练的时间、最近 14 天小格子）、“加部位”。龙图和三个龙头按钮去掉。
+- 部位可以自己加；加动作时必须从已有部位里选一个，默认当前部位（`modalPart`），存进 `ex.part`。
+- 打卡规则见上面 `finishSession()` 一条。结束后回首页，今天那格弹入，底部提示“胸、肱肌已打卡”；没有做完的动作提示“没有做完的动作，今天不打卡”。
+- 结束训练按钮灰色，有动作做完后变白（`.ready`）。
+- 训练页换成同一风格，每个动作右上角 N 个小方块，做完一组亮一个。休息计时、次数蒙版、备注、`⋯` 菜单、加组删组、结束确认、语言切换、云同步、登录都在。训练页底部的“添加动作”和“结束训练”固定在屏幕下方，同步状态条在训练页隐藏（只在首页显示）。
+- 同步：冲突时 `logs` 合并（见上面「同步规则」）。`isEmpty()` 把 `logs` 和非自带部位算进去，否则导入的记录会被云端盖掉。
+- 导入旧 App 数据：首页底部“导入旧 App 数据”，粘贴旧 App“复制全部数据”复制出来的文字。`chest`→`chest`，`back`→`back`，`shoulder`→`shoulders`，其余按名字找，找不到就新建部位。日期合并，重复导入不变。
+- 去掉没用到的 Tailwind CDN 脚本：它的重置样式会把标题的边距清零，而页面本身没用到它的任何类名。
+- `theme-color` 和 `manifest.webmanifest` 改成黑色，状态栏样式改成 `black`。没动 `apple-touch-icon`。
+
+**验证**
+- 测试从 33 条加到 57 条（`checkin.test.mjs` 24 条）。临时改坏代码跑过 8 种：少一组也算、忽略 `ex.part`、日期取结束时间、`isEmpty` 不看 `logs`、云端新时不合并、本地新时不合并、删掉的部位复活、`shoulder` 不映射。每种都有测试失败，其中“导入后登录被云端盖掉”那条第一版没抓到（导入里带新部位，被另一个条件挡住），已改成只导入胸。
+- agent-browser（390×844）：首页、加动作选部位、做完腹肌的动作结束，只亮腹肌，小格子和提示都对；日期面板和导入面板能打开。没有 JS 报错。
+- 旧 App 的“复制全部数据”在 Chromium 里测过：复制出来的内容和旧数据一致，弹窗正常。
+
+**没做 / 待确认**
+- **iPhone 实测**：毛玻璃、固定在底部的按钮、深色状态栏、旧 App 的复制按钮（`navigator.clipboard` 在主屏幕 App 里是否可用，没验证；失败时会弹出文字让手动复制）。
+- 方案里没定的事，这次都按方案里的默认做了：旧 App 的每周目标不搬、第 8 个部位起用灰色、点某天手动补打卡有。**部位的改名、删除、排序没做**，因为入口和删除后颜色怎么处理没定。
+- `jiduola.png`（龙图，7.6MB）还留在仓库里，页面已经不用了。
+- 老用户的 `showup:state` 没有 `color`、`partOrder`、`logs`，读的时候补，下一次 `save()` 才写回去。
 
 ### 2026-10-27：次数蒙版（上次的次数先蒙上毛玻璃）
 
