@@ -143,7 +143,7 @@ cd tests && npm install && npm test   # 约 2 秒，现在 61 条
 6. 补进云端的打卡日子有没有错：Eric 还没核对。
 7. 不到 5 分钟的训练不列、不算打卡：Agent 定的，Eric 没明确说过。
 8. `jiduola.png`（龙图 7.6MB）：页面已不用，还在仓库里，要不要删没问。
-9. X 更新：Agent 建议发新帖，不回复旧帖，配 2 张图（英文首页、英文某天面板）。Eric 还没说“发”。以后改了还要按 `CLAUDE.md` 问。
+9. 发更新：小红书原帖和 X 新帖都已在 2026-11-07 发。以后改了还要按 `CLAUDE.md` 问。
 
 ## 10. 修复记录（最新在上）
 
@@ -193,7 +193,7 @@ cd tests && npm install && npm test   # 约 2 秒，现在 61 条
 ## 11. 相关文件
 
 - `index.html`、`tests/`、`manifest.webmanifest`、`supabase/`
-- `CLAUDE.md`：推送和发更新的规则（已发帖：小红书 2026-10-27、X 2026-10-27）
+- `CLAUDE.md`：推送和发更新的规则（已发帖：小红书 2026-10-27，2026-11-07 更新原帖；X 2026-10-27、2026-11-07）
 - 旧 App：GitHub `Eriq7/Gym-Log`（本地文件夹已删，要看就 clone）
 - 云端查询：见第 5 节；Eric 的账号是 `user_state` 里更新最新的那个
 
